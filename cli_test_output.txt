@@ -1,0 +1,6 @@
+DEBUG: setPrintSpeedTable: Calling get_bed_shape(config)...
+DEBUG: setPrintSpeedTable: get_bed_shape done. Points: 5
+DEBUG: setPrintSpeedTable: Calling diff...
+DEBUG: setPrintSpeedTable: diff done. Result size: 0
+DEBUG: setPrintSpeedTable: diff result is empty!
+DEBUG: setPrintSpeedTable: Finished.

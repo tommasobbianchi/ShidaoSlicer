@@ -1,0 +1,7 @@
+{
+    "error_string": "Found G-code in unprintable area of multi-extruder printers after slicing. Please make sure the 3mf file can be successfully sliced in the latest Orca Slicer.",
+    "export_time": 0,
+    "plate_index": 1,
+    "prepare_time": 0,
+    "return_code": -102
+}

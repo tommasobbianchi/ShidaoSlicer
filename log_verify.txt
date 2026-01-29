@@ -1,0 +1,40 @@
+ORCA_DEBUG: Resources dir set to: /home/user/projects/ORCA_BELT/build/resources
+ORCA_DEBUG: GUI_Run start
+ORCA_DEBUG: Creating GUI_App
+ORCA_DEBUG: GUI_App created
+ORCA_DEBUG: Calling wxEntry (argc=1)
+ORCA_DEBUG: GUI_App::on_init_inner start
+ORCA_DEBUG: Before load_language
+ORCA_DEBUG: After load_language
+
+(orca-slicer:341691): Gtk-CRITICAL **: 13:41:38.366: gtk_window_resize: assertion 'width > 0' failed
+ORCA_DEBUG: Detected OpenGL Version: N/A
+ORCA_DEBUG: Bypassing OpenGL version check due to LIBGL_ALWAYS_SOFTWARE=1
+ORCA_DEBUG: Attempting to load shaders...
+ORCA_DEBUG: Loading shader 110/imgui.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/imgui.vs
+ORCA_DEBUG: Loading shader 110/imgui.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/imgui.fs
+ORCA_DEBUG: Loading shader 110/flat.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/flat.vs
+ORCA_DEBUG: Loading shader 110/flat.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/flat.fs
+ORCA_DEBUG: Loading shader 110/flat_clip.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/flat_clip.vs
+ORCA_DEBUG: Loading shader 110/flat_clip.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/flat_clip.fs
+ORCA_DEBUG: Loading shader 110/flat_texture.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/flat_texture.vs
+ORCA_DEBUG: Loading shader 110/flat_texture.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/flat_texture.fs
+ORCA_DEBUG: Loading shader 110/background.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/background.vs
+ORCA_DEBUG: Loading shader 110/background.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/background.fs
+ORCA_DEBUG: Loading shader 110/gouraud_light.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/gouraud_light.vs
+ORCA_DEBUG: Loading shader 110/gouraud_light.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/gouraud_light.fs
+ORCA_DEBUG: Loading shader 110/thumbnail.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/thumbnail.vs
+ORCA_DEBUG: Loading shader 110/thumbnail.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/thumbnail.fs
+ORCA_DEBUG: Loading shader 110/printbed.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/printbed.vs
+ORCA_DEBUG: Loading shader 110/printbed.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/printbed.fs
+ORCA_DEBUG: Loading shader 110/hotbed.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/hotbed.vs
+ORCA_DEBUG: Loading shader 110/hotbed.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/hotbed.fs
+ORCA_DEBUG: Loading shader 110/gouraud.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/gouraud.vs
+ORCA_DEBUG: Loading shader 110/gouraud.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/gouraud.fs
+ORCA_DEBUG: Loading shader 110/variable_layer_height.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/variable_layer_height.vs
+ORCA_DEBUG: Loading shader 110/variable_layer_height.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/variable_layer_height.fs
+ORCA_DEBUG: Loading shader 110/mm_contour.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/mm_contour.vs
+ORCA_DEBUG: Loading shader 110/mm_contour.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/mm_contour.fs
+ORCA_DEBUG: Loading shader 110/mm_gouraud.vs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/mm_gouraud.vs
+ORCA_DEBUG: Loading shader 110/mm_gouraud.fs from /home/user/projects/ORCA_BELT/build/resources/shaders/110/mm_gouraud.fs
+No such file or directory

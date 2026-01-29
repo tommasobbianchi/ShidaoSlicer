@@ -1,0 +1,1 @@
+/home/user/projects/.hippocampus/GLOBAL_CONTEXT.md

@@ -1,0 +1,13 @@
+[2026-01-28 21:04:58.674036] [0x00007309613154c0] [error]   Empty initial layer detected. Ignoring for debug.
+[2026-01-28 21:04:58.674074] [0x00007309613154c0] [error]   Object Layer Z: 0.2
+[2026-01-28 21:04:58.674093] [0x00007309613154c0] [error]   Ignored SlicingEmptyGcodeLayers warning: Object can't be printed for empty layer between 0 and 14.4.
+Object: test_cube.stl
+Maybe parts of the object at these height are too thin, or the object has faulty mesh
+[2026-01-28 21:04:58.741798] [0x00007309613154c0] [error]   Empty initial layer detected. Ignoring for debug.
+[2026-01-28 21:04:58.741822] [0x00007309613154c0] [error]   Object Layer Z: 0.2
+[2026-01-28 21:04:58.741852] [0x00007309613154c0] [error]   Ignored SlicingEmptyGcodeLayers warning: Object can't be printed for empty layer between 0 and 14.4.
+Object: test_cube.stl
+Maybe parts of the object at these height are too thin, or the object has faulty mesh
+[2026-01-28 21:04:59.439963] [0x00007309613154c0] [error]   plate 1: found gcode in unprintable area of the printers! gcode_result->gcode_check_result.error_code = 4
+
+run found error, return -102, exit...

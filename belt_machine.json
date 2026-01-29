@@ -1,0 +1,82 @@
+{
+    "type": "machine",
+    "name": "belt_machine_test",
+    "from": "user",
+    "instantiation": "false",
+    "printer_model": "BeltPrinterTest",
+    "printer_structure": "corexy",
+    "default_print_profile": "belt_process_test",
+    "nozzle_diameter": [
+        "0.4"
+    ],
+    "belt_printer": "1",
+    "belt_angle": "45",
+    "belt_axis": "Y",
+    "layer_change_gcode": "G92 E0",
+    "printable_area": [
+        "0x0",
+        "200x0",
+        "200x200",
+        "0x200"
+    ],
+    "printable_height": "10",
+    "machine_max_feedrate_x": [
+        "500"
+    ],
+    "machine_max_feedrate_y": [
+        "500"
+    ],
+    "machine_max_feedrate_z": [
+        "500"
+    ],
+    "machine_max_feedrate_e": [
+        "120"
+    ],
+    "machine_max_acceleration_x": [
+        "1000"
+    ],
+    "machine_max_acceleration_y": [
+        "1000"
+    ],
+    "machine_max_acceleration_z": [
+        "1000"
+    ],
+    "machine_max_acceleration_e": [
+        "5000"
+    ],
+    "machine_max_acceleration_extruding": [
+        "1250"
+    ],
+    "machine_max_acceleration_retracting": [
+        "1250"
+    ],
+    "layer_height": "0.2",
+    "retraction_length": [
+        "0.8"
+    ],
+    "retraction_speed": [
+        "40"
+    ],
+    "deretraction_speed": [
+        "40"
+    ],
+    "retract_before_wipe": [
+        "0%"
+    ],
+    "wipe": [
+        "1"
+    ],
+    "wipe_distance": [
+        "1"
+    ],
+    "z_hop": [
+        "0.4"
+    ],
+    "z_hop_types": [
+        "Normal"
+    ],
+    "extruder_offset": [
+        "0x0"
+    ],
+    "gcode_flavor": "marlin"
+}

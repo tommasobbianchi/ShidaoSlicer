@@ -1,0 +1,29 @@
+{
+    "name": "IdeaFormer",
+    "version": "1.0.2",
+    "description": "Configuration for IdeaFormer belt printers",
+    "machine_model_list": [
+        {
+            "name": "IdeaFormer IR3 V2",
+            "sub_path": "machine/IdeaFormer IR3 V2.json"
+        }
+    ],
+    "machine_list": [
+        {
+            "name": "IdeaFormer IR3 V2 0.4 nozzle",
+            "sub_path": "machine/IdeaFormer IR3 V2 0.4 nozzle.json"
+        }
+    ],
+    "process_list": [
+        {
+            "name": "0.20mm Standard @IdeaFormer IR3 V2",
+            "sub_path": "process/0.20mm Standard @IdeaFormer IR3 V2.json"
+        }
+    ],
+    "filament_list": [
+        {
+            "name": "Generic PLA @IdeaFormer",
+            "sub_path": "filament/Generic PLA @IdeaFormer.json"
+        }
+    ]
+}

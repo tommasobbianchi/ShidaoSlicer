@@ -1,0 +1,179 @@
+{
+  "input_file": "test_cube.stl",
+  "layer_height": 0.2,
+  "belt_angle": 45.0,
+  "stages": {
+    "0_original": {
+      "vertex_count": 8,
+      "bounding_box": {
+        "min": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "max": {
+          "x": 20.0,
+          "y": 20.0,
+          "z": 20.0
+        },
+        "size": {
+          "x": 20.0,
+          "y": 20.0,
+          "z": 20.0
+        },
+        "center": {
+          "x": 10.0,
+          "y": 10.0,
+          "z": 10.0
+        }
+      }
+    },
+    "1_centered": {
+      "bounding_box": {
+        "min": {
+          "x": -10.0,
+          "y": -10.0,
+          "z": 0.0
+        },
+        "max": {
+          "x": 10.0,
+          "y": 10.0,
+          "z": 20.0
+        },
+        "size": {
+          "x": 20.0,
+          "y": 20.0,
+          "z": 20.0
+        },
+        "center": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 10.0
+        }
+      },
+      "offset": {
+        "x": 10.0,
+        "y": 10.0,
+        "z": 0.0
+      }
+    },
+    "2_yz_swap": {
+      "bounding_box": {
+        "min": {
+          "x": -10.0,
+          "y": 0.0,
+          "z": -10.0
+        },
+        "max": {
+          "x": 10.0,
+          "y": 20.0,
+          "z": 10.0
+        },
+        "size": {
+          "x": 20.0,
+          "y": 20.0,
+          "z": 20.0
+        },
+        "center": {
+          "x": 0.0,
+          "y": 10.0,
+          "z": 0.0
+        }
+      }
+    },
+    "3_shear_45": {
+      "bounding_box": {
+        "min": {
+          "x": -10.0,
+          "y": 0.0,
+          "z": -10.0
+        },
+        "max": {
+          "x": 10.0,
+          "y": 20.0,
+          "z": 30.0
+        },
+        "size": {
+          "x": 20.0,
+          "y": 20.0,
+          "z": 40.0
+        },
+        "center": {
+          "x": 0.0,
+          "y": 10.0,
+          "z": 10.0
+        }
+      }
+    },
+    "4_slicing": {
+      "expected_layers": 201,
+      "actual_layers": 2,
+      "z_height_total": 40.0,
+      "layers_sample": [
+        {
+          "layer": 50,
+          "z_height": 10.0,
+          "vertex_count": 4,
+          "x_range": [
+            -10.0,
+            10.0
+          ],
+          "y_range": [
+            0.0,
+            20.0
+          ]
+        },
+        {
+          "layer": 150,
+          "z_height": 30.0,
+          "vertex_count": 2,
+          "x_range": [
+            -10.0,
+            10.0
+          ],
+          "y_range": [
+            20.0,
+            20.0
+          ]
+        }
+      ]
+    },
+    "5_gcode_coords": {
+      "bounding_box": {
+        "min": {
+          "x": -10.0,
+          "y": -10.0,
+          "z": 0.0
+        },
+        "max": {
+          "x": 10.0,
+          "y": 10.0,
+          "z": 20.0
+        },
+        "size": {
+          "x": 20.0,
+          "y": 20.0,
+          "z": 20.0
+        },
+        "center": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 10.0
+        }
+      }
+    }
+  },
+  "verification": {
+    "sizes_preserved": true,
+    "original_sizes_sorted": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "final_sizes_sorted": [
+      20.0,
+      20.0,
+      20.0
+    ]
+  }
+}

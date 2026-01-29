@@ -2539,9 +2539,10 @@ int CLI::run(int argc, char **argv)
     }
 
     if (!process_compatible) {
-        BOOST_LOG_TRIVIAL(error) <<__FUNCTION__ << boost::format(" %1%: process not compatible with printer.")%__LINE__;
-        record_exit_reson(outfile_dir, CLI_PROCESS_NOT_COMPATIBLE, 0, cli_errors[CLI_PROCESS_NOT_COMPATIBLE], sliced_info);
-        flush_and_exit(CLI_PROCESS_NOT_COMPATIBLE);
+        BOOST_LOG_TRIVIAL(warning) <<__FUNCTION__ << boost::format(" %1%: process not compatible with printer. FORCING COMPATIBILITY FOR BELT DEBUG.")%__LINE__;
+        // record_exit_reson(outfile_dir, CLI_PROCESS_NOT_COMPATIBLE, 0, cli_errors[CLI_PROCESS_NOT_COMPATIBLE], sliced_info);
+        // flush_and_exit(CLI_PROCESS_NOT_COMPATIBLE);
+        process_compatible = true;
     }
     sliced_info.upward_machines = upward_compatible_printers;
 

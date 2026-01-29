@@ -83,7 +83,7 @@
 #include "Selection.hpp"
 #include "GLToolbar.hpp"
 #include "GUI_Preview.hpp"
-#include "3DBed.hpp"
+#include "BeltBed3D.hpp"
 #include "PartPlate.hpp"
 #include "Camera.hpp"
 #include "Mouse3DController.hpp"
@@ -4112,7 +4112,7 @@ struct Plater::priv
         bool                  is_collapsed{false};
         bool                  show{false};
     } sidebar_layout;
-    Bed3D bed;
+    BeltBed3D bed;
     Camera camera;
     //BBS: partplate related structure
     PartPlateList partplate_list;
@@ -10718,8 +10718,17 @@ void Plater::priv::set_bed_shape(const Pointfs       &shape,
 
     //BBS: add shape position
     Vec2d shape_position = partplate_list.get_current_shape_position();
-    bool new_shape = bed.set_shape(shape, printable_height, extruder_areas, extruder_heights, custom_model, force_as_custom, shape_position);
-
+    //BBS: add bed exclude area
+    bool new_shape = this->bed.set_shape(shape, printable_height, extruder_areas, extruder_heights, custom_model, force_as_custom,
+        /*position*/ shape_position, /*with_reset*/ false);
+    
+    // ORCA_BELT: Load belt profile if applicable
+    // Safety check: only access printer_structure if it exists in config
+    if (this->config && this->config->has("printer_structure")) {
+        if (this->config->opt_enum<PrinterStructure>("printer_structure") == psBelt) {
+            this->bed.load_belt_profile(*this->config);
+        }
+    }
     float prev_height_lid, prev_height_rod;
     partplate_list.get_height_limits(prev_height_lid, prev_height_rod);
     double height_to_lid = config->opt_float("extruder_clearance_height_to_lid");

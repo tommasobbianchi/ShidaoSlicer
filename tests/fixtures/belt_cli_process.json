@@ -1,0 +1,102 @@
+{
+    "type": "process",
+    "name": "0.20mm Belt @IR3",
+    "from": "user",
+    "setting_id": "BELT_PROCESS001",
+    "instantiation": "true",
+    
+    "layer_height": "0.2",
+    "initial_layer_print_height": "0.3",
+    "wall_loops": "2",
+    "top_shell_layers": "4",
+    "bottom_shell_layers": "3",
+    
+    "sparse_infill_density": "15%",
+    "sparse_infill_pattern": "grid",
+    "top_surface_pattern": "monotonic",
+    "bottom_surface_pattern": "monotonic",
+    
+    "outer_wall_speed": "40",
+    "inner_wall_speed": "60",
+    "sparse_infill_speed": "80",
+    "top_surface_speed": "30",
+    "internal_solid_infill_speed": "60",
+    "initial_layer_speed": "20",
+    "travel_speed": "150",
+    "initial_layer_travel_speed": "100",
+    
+    "enable_overhang_speed": "1",
+    "overhang_1_4_speed": "0",
+    "overhang_2_4_speed": "20",
+    "overhang_3_4_speed": "15",
+    "overhang_4_4_speed": "10",
+    
+    "line_width": "0.45",
+    "initial_layer_line_width": "0.5",
+    "outer_wall_line_width": "0.45",
+    "inner_wall_line_width": "0.45",
+    "top_surface_line_width": "0.4",
+    "sparse_infill_line_width": "0.45",
+    "internal_solid_infill_line_width": "0.45",
+    "support_line_width": "0.4",
+    
+    "wall_infill_order": "inner wall/outer wall/infill",
+    "print_sequence": "by layer",
+    "spiral_mode": "0",
+    "timelapse_type": "0",
+    
+    "enable_support": "0",
+    "support_type": "normal(auto)",
+    "support_threshold_angle": "30",
+    "support_on_build_plate_only": "0",
+    
+    "skirt_loops": "0",
+    "skirt_distance": "2",
+    "skirt_height": "1",
+    "brim_type": "no_brim",
+    "brim_width": "0",
+    "brim_object_gap": "0.1",
+    
+    "raft_layers": "0",
+    
+    "ironing_type": "no ironing",
+    
+    "seam_position": "aligned",
+    "staggered_inner_seams": "0",
+    
+    "resolution": "0.012",
+    "xy_contour_compensation": "0",
+    "xy_hole_compensation": "0",
+    "elefant_foot_compensation": "0.1",
+    
+    "bridge_flow": "1",
+    "bridge_speed": "25",
+    "internal_bridge_speed": "70%",
+    "gap_infill_speed": "30",
+    
+    "only_one_wall_top": "1",
+    "only_one_wall_first_layer": "0",
+    "detect_thin_wall": "1",
+    "detect_overhang_wall": "1",
+    
+    "reduce_crossing_wall": "0",
+    "max_travel_detour_distance": "0",
+    
+    "retraction_minimum_travel": "1",
+    "wipe_before_external_loop": "0",
+    "wipe_on_loops": "0",
+    
+    "fuzzy_skin": "none",
+    
+    "wall_generator": "classic",
+    "wall_transition_angle": "10",
+    "wall_transition_filter_deviation": "25%",
+    "wall_transition_length": "100%",
+    "wall_distribution_count": "1",
+    "min_bead_width": "85%",
+    "min_feature_size": "25%",
+    
+    "top_solid_infill_flow_ratio": "1",
+    "bottom_solid_infill_flow_ratio": "1",
+    "initial_layer_flow_ratio": "1"
+}

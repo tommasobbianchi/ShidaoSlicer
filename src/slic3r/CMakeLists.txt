@@ -14,6 +14,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/2DBed.hpp
     GUI/3DBed.cpp
     GUI/3DBed.hpp
+    GUI/BeltBed3D.cpp
+    GUI/BeltBed3D.hpp
     GUI/Widgets/StaticGroup.cpp
     GUI/Widgets/StaticGroup.hpp
     GUI/3DScene.cpp

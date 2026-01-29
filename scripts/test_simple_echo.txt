@@ -1,0 +1,3 @@
+# Echo Task
+
+Please rewrite the file `scripts/echo_test.sh` to echo "Hello from AgentForge".

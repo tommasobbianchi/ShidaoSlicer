@@ -9,6 +9,13 @@
 #include "PrintConfig.hpp"
 #include "GCode/CoolingBuffer.hpp"
 
+// Forward declaration for belt printer support
+namespace Slic3r {
+namespace BeltPrinter { 
+    struct BeltMachineProfile;
+}
+}
+
 namespace Slic3r {
 
 class GCodeWriter {
@@ -124,6 +131,14 @@ public:
     const bool is_bbl_printers() const {return m_is_bbl_printers;}
     void set_is_first_layer(bool bval) { m_is_first_layer = bval; }
     GCodeFlavor get_gcode_flavor() const { return config.gcode_flavor; }
+    
+    // Belt printer support
+    void set_belt_profile(const BeltPrinter::BeltMachineProfile* profile) { 
+        m_belt_profile = profile; 
+    }
+    const BeltPrinter::BeltMachineProfile* get_belt_profile() const { 
+        return m_belt_profile; 
+    }
 
     // Returns whether this flavor supports separate print and travel acceleration.
     static bool supports_separate_travel_acceleration(GCodeFlavor flavor);
@@ -176,6 +191,9 @@ public:
     bool            m_is_bbl_printers = false;
     double          m_current_speed;
     bool            m_is_first_layer = true;
+    
+    // Belt printer profile for coordinate transformation
+    const BeltPrinter::BeltMachineProfile* m_belt_profile = nullptr;
 
     enum class Acceleration {
         Travel,
@@ -191,13 +209,16 @@ public:
 
 class GCodeFormatter {
 public:
-    GCodeFormatter() {
+    GCodeFormatter(const BeltPrinter::BeltMachineProfile* belt_profile = nullptr)
+        : m_belt_profile(belt_profile) {
         this->buf_end = buf + buflen;
         this->ptr_err.ptr = this->buf;
     }
 
     GCodeFormatter(const GCodeFormatter&) = delete;
     GCodeFormatter& operator=(const GCodeFormatter&) = delete;
+
+    void set_z_offset(double offset) { m_z_offset = offset; }
 
     // At layer height 0.15mm, extrusion width 0.2mm and filament diameter 1.75mm,
     // the crossection of extrusion is 0.4 * 0.15 = 0.06mm2
@@ -230,14 +251,49 @@ public:
         this->emit_axis('Y', point.y(), XYZF_EXPORT_DIGITS);
     }
 
+    void emit_xy(const Vec3d &point) {
+        Vec3d final_point = point;
+        if (m_belt_profile != nullptr) {
+            extern Vec3d apply_belt_transform_V_to_F(const Vec3d& point_V, const BeltPrinter::BeltMachineProfile& profile, double z_offset);
+            final_point = apply_belt_transform_V_to_F(point, *m_belt_profile, m_z_offset);
+        }
+        this->emit_axis('X', final_point.x(), XYZF_EXPORT_DIGITS);
+        this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);
+    }
+
     void emit_xyz(const Vec3d &point) {
-        this->emit_axis('X', point.x(), XYZF_EXPORT_DIGITS);
-        this->emit_axis('Y', point.y(), XYZF_EXPORT_DIGITS);
-        this->emit_z(point.z());
+        Vec3d final_point = point;
+        
+        // Apply V→F transformation for belt printer if profile is set
+        if (m_belt_profile != nullptr) {
+            // Forward declare to avoid circular dependency
+            // Actual implementation requires BeltTransforms.hpp include in .cpp
+            extern Vec3d apply_belt_transform_V_to_F(
+                const Vec3d& point_V, 
+                const BeltPrinter::BeltMachineProfile& profile,
+                double z_offset);
+            
+            final_point = apply_belt_transform_V_to_F(point, *m_belt_profile, m_z_offset);
+        }
+        
+        this->emit_axis('X', final_point.x(), XYZF_EXPORT_DIGITS);
+        this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);
+        this->emit_z(final_point.z());
     }
 
     void emit_z(const double z) {
         this->emit_axis('Z', z, XYZF_EXPORT_DIGITS);
+    }
+
+    void emit_z(const Vec3d &point) {
+        if (m_belt_profile != nullptr) {
+            extern Vec3d apply_belt_transform_V_to_F(const Vec3d& point_V, const BeltPrinter::BeltMachineProfile& profile, double z_offset);
+            Vec3d final_point = apply_belt_transform_V_to_F(point, *m_belt_profile, m_z_offset);
+            this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);
+            this->emit_axis('Z', final_point.z(), XYZF_EXPORT_DIGITS);
+        } else {
+            this->emit_axis('Z', point.z(), XYZF_EXPORT_DIGITS);
+        }
     }
 
     void emit_e(double v) {
@@ -271,6 +327,9 @@ public:
     }
 
 protected:
+    const BeltPrinter::BeltMachineProfile* m_belt_profile = nullptr;
+    double m_z_offset = 0.0;
+    
     static constexpr const size_t   buflen = 256;
     char                            buf[buflen];
     char* buf_end;
@@ -279,7 +338,8 @@ protected:
 
 class GCodeG1Formatter : public GCodeFormatter {
 public:
-    GCodeG1Formatter() {
+    GCodeG1Formatter(const BeltPrinter::BeltMachineProfile* belt_profile = nullptr) 
+        : GCodeFormatter(belt_profile) {
         this->buf[0] = 'G';
         this->buf[1] = '1';
         this->buf_end = buf + buflen;

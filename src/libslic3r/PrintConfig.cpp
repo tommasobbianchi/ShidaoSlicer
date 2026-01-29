@@ -460,9 +460,17 @@ static t_config_enum_values s_keys_map_PrinterStructure {
     {"corexy",          int(PrinterStructure::psCoreXY)},
     {"i3",              int(PrinterStructure::psI3)},
     {"hbot",            int(PrinterStructure::psHbot)},
-    {"delta",           int(PrinterStructure::psDelta)}
+    {"delta",           int(PrinterStructure::psDelta)},
+    {"belt",            int(PrinterStructure::psBelt)}
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(PrinterStructure)
+
+static t_config_enum_values s_keys_map_BeltAxis {
+    {"x",               int(BeltAxis::X)},
+    {"y",               int(BeltAxis::Y)},
+    {"z",               int(BeltAxis::Z)}
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltAxis)
 
 static t_config_enum_values s_keys_map_PerimeterGeneratorType{
     { "classic", int(PerimeterGeneratorType::Classic) },
@@ -3417,13 +3425,37 @@ void PrintConfigDef::init_fff_params()
     def->enum_values.push_back("i3");
     def->enum_values.push_back("hbot");
     def->enum_values.push_back("delta");
+    def->enum_values.push_back("belt");
     def->enum_labels.push_back(L("Undefine"));
     def->enum_labels.push_back(L("CoreXY"));
     def->enum_labels.push_back(L("I3"));
     def->enum_labels.push_back(L("Hbot"));
     def->enum_labels.push_back(L("Delta"));
+    def->enum_labels.push_back(L("Belt"));
     def->mode = comDevelop;
     def->set_default_value(new ConfigOptionEnum<PrinterStructure>(psUndefine));
+
+    def = this->add("belt_angle", coFloat);
+    def->label = L("Belt Angle");
+    def->tooltip = L("Angle of the belt relative to the Z axis (in degrees).");
+    def->sidetext = L(u8"°");
+    def->min = 0;
+    def->max = 90;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(45.0));
+
+    def = this->add("belt_axis", coEnum);
+    def->label = L("Belt Axis");
+    def->tooltip = L("The axis along which the belt moves.");
+    def->enum_keys_map = &ConfigOptionEnum<BeltAxis>::get_enum_values();
+    def->enum_values.push_back("x");
+    def->enum_values.push_back("y");
+    def->enum_values.push_back("z");
+    def->enum_labels.push_back(L("X"));
+    def->enum_labels.push_back(L("Y"));
+    def->enum_labels.push_back(L("Z"));
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<BeltAxis>(BeltAxis::Z));
 
     def = this->add("best_object_pos", coPoint);
     def->label = L("Best object position");
@@ -9625,7 +9657,7 @@ CLIActionsConfigDef::CLIActionsConfigDef()
     def->cli = "uptodate";
     def->set_default_value(new ConfigOptionBool(false));
 
-    def = this->add("downward_check", coStrings);
+    def = this->add("downward_check_machines", coStrings);
     def->label = L("downward machines check");
     def->tooltip = L("check whether current machine downward compatible with the machines in the list.");
     def->cli_params = "\"machine1.json;machine2.json;...\"";

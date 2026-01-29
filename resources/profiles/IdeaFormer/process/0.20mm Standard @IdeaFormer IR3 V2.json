@@ -1,0 +1,15 @@
+{
+    "type": "process",
+    "name": "0.20mm Standard @IdeaFormer IR3 V2",
+    "from": "system",
+    "instantiation": "true",
+    "layer_height": "0.2",
+    "first_layer_height": "0.2",
+    "initial_layer_line_width": "0.42",
+    "wall_loops": "2",
+    "reduce_infill_retraction": "1",
+    "detect_overhang_wall": "1",
+    "compatible_printers": [
+        "IdeaFormer IR3 V2 0.4 nozzle"
+    ]
+}

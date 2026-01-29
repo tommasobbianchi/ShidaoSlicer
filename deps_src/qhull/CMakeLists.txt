@@ -10,7 +10,9 @@
 
 # see bug report: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=925540
 
-find_package(Qhull 7.2 QUIET)
+# ORCA_BELT: Force bundled qhull to avoid Debug target issues
+# find_package(Qhull 7.2 QUIET)
+set(Qhull_FOUND FALSE)
 
 add_library(qhull INTERFACE)
 

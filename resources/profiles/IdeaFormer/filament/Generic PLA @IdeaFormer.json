@@ -1,0 +1,38 @@
+{
+    "type": "filament",
+    "name": "Generic PLA @IdeaFormer",
+    "inherits": "fdm_filament_pla",
+    "from": "system",
+    "instantiation": "true",
+    "compatible_printers": [
+        "IdeaFormer IR3 V2 0.4 nozzle"
+    ],
+    "filament_max_volumetric_speed": [
+        "12"
+    ],
+    "fan_cooling_layer_time": [
+        "60"
+    ],
+    "filament_density": [
+        "1.24"
+    ],
+    "filament_flow_ratio": [
+        "0.98"
+    ],
+    "nozzle_temperature": [
+        "210",
+        "210"
+    ],
+    "nozzle_temperature_initial_layer": [
+        "210",
+        "210"
+    ],
+    "bed_temperature": [
+        "60",
+        "60"
+    ],
+    "bed_temperature_initial_layer": [
+        "60",
+        "60"
+    ]
+}

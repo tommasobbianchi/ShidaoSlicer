@@ -1,0 +1,13 @@
+{
+    "type": "machine",
+    "from": "system",
+    "name": "Belt Machine",
+    "printer_model": "Bambu Lab X1 Carbon",
+    "printer_variant": "0.4",
+    "default_print_profile": "0.20mm Standard @BBL X1C",
+    "belt_printer": "1",
+    "belt_angle": "45.0",
+    "nozzle_diameter": "0.4",
+    "gcode_flavor": "klipper",
+    "printable_area": "0,0;200,0;200,200;0,200"
+}

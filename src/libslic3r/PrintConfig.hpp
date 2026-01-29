@@ -334,7 +334,13 @@ enum PrinterStructure {
     psCoreXY,
     psI3,
     psHbot,
-    psDelta
+    psDelta,
+    psBelt
+};
+
+// Orca: Belt Printer Axis
+enum class BeltAxis {
+    X, Y, Z
 };
 
 // BBS
@@ -507,6 +513,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(PrintHostType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(AuthorizationType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(WipeTowerWallType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(PerimeterGeneratorType)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
 
 #undef CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS
 
@@ -1436,6 +1443,9 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloatOrPercent,     initial_layer_line_width))
     ((ConfigOptionFloat,              initial_layer_print_height))
     ((ConfigOptionFloat,              initial_layer_speed))
+    // Orca: Belt Printer
+    ((ConfigOptionFloat,              belt_angle))
+    ((ConfigOptionEnum<BeltAxis>,     belt_axis))
 
     //BBS
     ((ConfigOptionFloat,              initial_layer_infill_speed))

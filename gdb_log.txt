@@ -1,0 +1,38 @@
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgdk-3.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgdk_pixbuf-2.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgio-2.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgobject-2.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libglib-2.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstreamer-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstvideo-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstbase-1.0.so.0
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgmodule-2.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/liborc-0.4.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libxslt.so.1
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libwoff2dec.so.1.0.2
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstallocators-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstapp-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstpbutils-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstaudio-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgsttag-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgstfft-1.0.so.0
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libenchant-2.so.2
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libgbm.so.1
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libbrotlidec.so.1
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libcap.so.2
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libwoff2common.so.1.0.2
+warning: could not find '.gnu_debugaltlink' file for /lib/x86_64-linux-gnu/libbrotlicommon.so.1
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00005555570648e4 in Slic3r::GUI::PartPlate::set_shape(std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > const&, std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > const&, std::vector<std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > > > const&, std::vector<double, std::allocator<double> > const&, Eigen::Matrix<double, 2, 1, 2, 2, 1>, float, float) ()
+#0  0x00005555570648e4 in Slic3r::GUI::PartPlate::set_shape(std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > const&, std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > const&, std::vector<std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > > > const&, std::vector<double, std::allocator<double> > const&, Eigen::Matrix<double, 2, 1, 2, 2, 1>, float, float) ()
+#1  0x0000555557064f0e in Slic3r::GUI::PartPlateList::set_shapes(std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > const&, std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > const&, std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > const&, std::vector<std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 2, 1, 2, 2, 1>, std::allocator<Eigen::Matrix<double, 2, 1, 2, 2, 1> > > > > const&, std::vector<double, std::allocator<double> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, float, float) ()
+#2  0x0000555556281a87 in Slic3r::CLI::run(int, char**) ()
+#3  0x000055555613ebd8 in main ()
+A debugging session is active.
+
+	Inferior 1 [process 325092] will be killed.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]

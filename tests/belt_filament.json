@@ -1,0 +1,10 @@
+{
+    "type": "filament",
+    "from": "system",
+    "name": "Belt Filament",
+    "filament_id": "G001",
+    "filament_type": "PLA",
+    "filament_vendor": "Generic",
+    "filament_cost": "20",
+    "filament_density": "1.24"
+}

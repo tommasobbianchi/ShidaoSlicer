@@ -1,0 +1,15 @@
+{
+    "type": "process",
+    "from": "system",
+    "name": "Belt Process",
+    "compatible_printers_condition": "",
+    "initial_layer_speed": "30",
+    "layer_height": "0.2",
+    "initial_layer_print_height": "0.2",
+    "wall_loops": "2",
+    "top_shell_layers": "3",
+    "bottom_shell_layers": "3",
+    "sparse_infill_pattern": "grid",
+    "skirt_loops": "0",
+    "brim_width": "0"
+}

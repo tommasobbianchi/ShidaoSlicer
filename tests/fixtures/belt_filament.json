@@ -1,0 +1,16 @@
+{
+    "type": "filament",
+    "from": "system",
+    "name": "Generic PLA",
+    "filament_id": "G001",
+    "filament_type": "PLA",
+    "filament_diameter": ["1.75"],
+    "bed_temperature": ["90"],
+    "first_layer_bed_temperature": ["90"],
+    "temperature": ["240"],
+    "first_layer_temperature": ["240"],
+    "filament_start_gcode": ["; Filament start\\nM900 K0"],
+    "filament_end_gcode": ["; Filament end"],
+    "filament_ids": ["GFTEST001"],
+    "filament_colour": ["#CCCCCC"]
+}

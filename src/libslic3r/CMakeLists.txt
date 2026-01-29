@@ -467,6 +467,26 @@ set(lisbslic3r_sources
     GCode/ToolOrderUtils.cpp
     FlushVolPredictor.hpp
     FlushVolPredictor.cpp
+    # Belt Printer support
+    BeltPrinter/BeltContactClassifier.cpp
+    BeltPrinter/BeltContactClassifier.hpp
+    BeltPrinter/BeltPlacement.cpp
+    BeltPrinter/BeltPlacement.hpp
+    BeltPrinter/BeltRaft.cpp
+    BeltPrinter/BeltRaft.hpp
+    BeltPrinter/BeltTransforms.cpp
+    BeltPrinter/BeltTransforms.hpp
+    BeltPrinter/CompatibilityMode.cpp
+    BeltPrinter/CompatibilityMode.hpp
+    BeltPrinter/DirectionalSupports.cpp
+    BeltPrinter/DirectionalSupports.hpp
+    BeltPrinter/GCodeEmitter.cpp
+    BeltPrinter/GCodeEmitter.hpp
+    BeltPrinter/MachineProfile.cpp
+    BeltPrinter/MachineProfile.hpp
+    BeltPrinter/MachineProfileConfig.cpp
+    BeltPrinter/VirtualBeltFrame.cpp
+    BeltPrinter/VirtualBeltFrame.hpp
 )
 
 if (APPLE)

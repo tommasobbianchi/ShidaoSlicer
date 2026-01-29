@@ -1,0 +1,9 @@
+OrcaSlicer main: Start
+OrcaSlicer::CLI::run: Start
+DEBUG: Accessing load_filaments
+DEBUG: Accessing skip_objects
+DEBUG: Reached performing_downward_check logic
+
+(orca-slicer:2357378): GLib-GObject-CRITICAL **: 10:02:50.366: invalid (NULL) pointer instance
+
+(orca-slicer:2357378): GLib-GObject-CRITICAL **: 10:02:50.366: g_signal_handlers_disconnect_matched: assertion 'G_TYPE_CHECK_INSTANCE (instance)' failed

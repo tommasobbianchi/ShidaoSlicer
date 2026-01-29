@@ -1140,8 +1140,21 @@ void PrintObject::slice_volumes()
     std::vector<float>                   slice_zs      = zs_from_layers(m_layers);
     std::vector<VolumeSlices> objSliceByVolume;
     if (!slice_zs.empty()) {
+        // ORCA_BELT: Belt frame transform is now in trafo_centered()
+        Transform3d slice_trafo = this->trafo_centered();
+        
+        // Adjust Z min to 0 for belt printers (model may have shifted)
+        BeltSlicingParams belt_params = this->get_belt_slicing_params();
+        if (belt_params.angle != 0.0) {
+            BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
+            if (bbox.defined) {
+                bbox = bbox.transformed(slice_trafo);
+                slice_trafo.pretranslate(Vec3d(0, 0, -bbox.min.z()));
+            }
+        }
+
         objSliceByVolume = slice_volumes_inner(
-            print->config(), this->config(), this->trafo_centered(),
+            print->config(), this->config(), slice_trafo,
             this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback);
     }
 
@@ -1528,7 +1541,29 @@ std::vector<Polygons> PrintObject::slice_support_volumes(const ModelVolumeType m
         const Print       *print = this->print();
         auto               throw_on_cancel_callback = std::function<void()>([print](){ print->throw_if_canceled(); });
         MeshSlicingParamsEx params;
-        params.trafo = this->trafo_centered();
+        
+        // ORCA_BELT: Shear Logic
+        Transform3d base_trafo = this->trafo_centered();
+        BeltSlicingParams belt_params = this->get_belt_slicing_params();
+        Transform3d slice_trafo;
+        
+        if (belt_params.angle != 0.0) {
+             // Construct Shear Matrix: Z_s = Z_m + Y_m * tan(alpha)
+             // Note: We use the same logic as slice_volumes
+             Transform3d shear = Transform3d::Identity();
+             shear(2, 1) = std::tan(belt_params.angle);
+             
+             slice_trafo = shear * base_trafo;
+             
+             BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
+             if (bbox.defined) {
+                 bbox = bbox.transformed(slice_trafo);
+                 slice_trafo.pretranslate(Vec3d(0, 0, -bbox.min.z()));
+             }
+        } else {
+            slice_trafo = base_trafo;
+        }
+        params.trafo = slice_trafo;
         for (; it_volume != it_volume_end; ++ it_volume)
             if ((*it_volume)->type() == model_volume_type) {
                 std::vector<ExPolygons> slices2 = slice_volume(*(*it_volume), zs, params, throw_on_cancel_callback);

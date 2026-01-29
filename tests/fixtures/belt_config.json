@@ -1,0 +1,44 @@
+{
+  "print_settings_id": "IT01_Belt_Test",
+  "printer_model": "CR30_Test",
+  "printer_settings_id": "CR30_Belt", 
+  "belt_printer": "1",
+  "belt_angle": "45",
+  "belt_axis": "Z",
+  
+  "layer_height": "0.2",
+  "first_layer_height": "0.25",
+  "initial_layer_print_height": "0.25",
+  
+  "nozzle_diameter": ["0.4"],
+  "filament_diameter": ["1.75"],
+  
+  "bed_temperature": ["60"],
+  "first_layer_bed_temperature": ["60"],
+  "temperature": ["205"],
+  "first_layer_temperature": ["210"],
+ 
+  "perimeter_speed": "45",
+  "infill_speed": "60",
+  "travel_speed": "120",
+  "first_layer_speed": "20",
+  
+  "fill_density": "15%",
+  "fill_pattern": "grid",
+  
+  "support_material": "0",
+  "raft_layers": "0",
+  
+  "retraction_length": ["0.8"],
+  "retraction_speed": ["40"],
+  
+  "skirts": "1",
+  "skirt_distance": "2",
+  "skirt_height": "1",
+  
+  "brim_width": "0",
+  "brim_type": "no_brim",
+  
+  "wipe_tower": "0",
+  "single_extruder_multi_material": "0"
+}

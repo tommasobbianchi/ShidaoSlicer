@@ -3387,9 +3387,27 @@ void PrintObject::update_slicing_parameters()
 {
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
-          m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, this->model_object()->max_z(),
-                                                                   this->object_extruders(), this->print()->shrinkage_compensation());
-      }
+        float max_z = this->model_object()->max_z();
+        
+        // ORCA_BELT: Adjust max_z for belt rotation
+        BeltSlicingParams belt_params = this->get_belt_slicing_params();
+        if (belt_params.angle != 0.0) {
+            BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
+            if (bbox.defined) {
+                // Apply combined transform: center offset + shear
+                Transform3d shear = Transform3d::Identity();
+                shear(2, 1) = std::tan(belt_params.angle); 
+                Transform3d trafo = shear * this->trafo_centered();
+                
+                bbox = bbox.transformed(trafo);
+                // Adjust so that min_z is 0 (we will shift during slicing)
+                max_z = float(bbox.max.z() - bbox.min.z());
+            }
+        }
+
+        m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, max_z,
+                                                                 this->object_extruders(), this->print()->shrinkage_compensation());
+    }
 }
 
 // Orca: XYZ shrinkage compensation has introduced the const Vec3d &object_shrinkage_compensation parameter to the function below
@@ -4372,5 +4390,15 @@ const Layer* PrintObject::get_layer_at_bottomz(coordf_t bottom_z, coordf_t epsil
 
 Layer* PrintObject::get_layer_at_bottomz(coordf_t bottom_z, coordf_t epsilon) { return const_cast<Layer*>(std::as_const(*this).get_layer_at_bottomz(bottom_z, epsilon)); }
 
+
+// ORCA_BELT
+BeltSlicingParams PrintObject::get_belt_slicing_params() const
+{
+    if (m_print->config().printer_structure.value == psBelt) {
+         double angle_deg = m_print->config().belt_angle.value;
+         return BeltSlicingParams(Geometry::deg2rad(angle_deg));
+    }
+    return BeltSlicingParams(0.0);
+}
 
 } // namespace Slic3r

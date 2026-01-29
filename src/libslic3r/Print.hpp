@@ -310,6 +310,14 @@ private:
     size_t                                      m_ref_cnt{ 0 };
 };
 
+struct BeltSlicingParams {
+    double angle;
+    Vec3d normal;
+    BeltSlicingParams(double angle_rad = 0.0) : angle(angle_rad) {
+         normal = Vec3d(0.0, -std::sin(angle), std::cos(angle));
+    }
+};
+
 class PrintObject : public PrintObjectBaseWithState<Print, PrintObjectStep, posCount>
 {
 private: // Prevents erroneous use by other classes.
@@ -325,9 +333,67 @@ public:
     const Transform3d&           trafo() const          { return m_trafo; }
     // Trafo with the center_offset() applied after the transformation, to center the object in XY before slicing.
     Transform3d                  trafo_centered() const
-        { Transform3d t = this->trafo(); t.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), - unscale<double>(m_center_offset.y()), 0)); return t; }
+    { 
+        Transform3d t = this->trafo(); 
+        t.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), - unscale<double>(m_center_offset.y()), 0)); 
+        
+        // ORCA_BELT: Apply frame rotation for belt printers
+        // This transforms the model so that:
+        // 1. Y↔Z swap: Belt axis (Y) becomes the slicing axis (Z)
+        // 2. 45° shear: Layers become diagonal to the original belt
+        BeltSlicingParams belt_params = this->get_belt_slicing_params();
+        if (belt_params.angle != 0.0) {
+            double tan_alpha = std::tan(belt_params.angle);
+            
+            // Combined transform: Y↔Z swap * shear
+            // swap:  [1,0,0; 0,0,1; 0,1,0] 
+            // shear: [1,0,0; 0,1,tan; 0,0,1]
+            //
+            // Matrix multiplication order is t * M (points are row vectors v' = v * M in Eigen?)
+            // OR standard linear algebra v' = M * v. Slic3r::Transform3d uses Affine3d from Eigen.
+            // Eigen multiplies v_new = T * v_old.
+            //
+            // Goal:
+            // new_X = old_X
+            // new_Y = old_Z (swapped)
+            // new_Z = old_Y + old_Z * tan(alpha) (swapped + sheared)
+            
+            Transform3d belt_frame = Transform3d::Identity();
+            
+            // X row (unchanged)
+            belt_frame(0, 0) = 1;
+
+            // Y row (was Z) -> new_Y = old_Z
+            belt_frame(1, 1) = 0; belt_frame(1, 2) = 1;
+
+            // Z row (was Y, sheared by Z)
+            // new_Z = old_Y * 1 + old_Z * tan_alpha
+            belt_frame(2, 1) = 1;          // contrib from old_Y
+            belt_frame(2, 2) = tan_alpha;  // contrib from old_Z
+
+            
+            t = belt_frame * t;
+            
+            // ORCA_BELT FIX: After the transform, Z can be negative because the centered
+            // Y coordinate (which was -half_size_y to +half_size_y) becomes the Z coordinate.
+            // We need to translate Z so that Z_min = 0.
+            // The minimum Z after transform comes from the minimum old_Y (which is -half_size_y)
+            // plus shear contribution from old_Z=0: Z_min = -half_size_y + 0 = -half_size_y
+            // So we need to add +half_size_y to Z to bring Z_min to 0.
+            double half_size_y = unscale<double>(m_center_offset.y());  // This is the Y centering offset
+            // After centering, Y goes from -half_size_y to +half_size_y
+            // After swap+shear, Z_min = -half_size_y (from old_Y when old_Z=0)
+            // We need to translate Z by +half_size_y to floor Z at 0
+            t.pretranslate(Vec3d(0, 0, half_size_y));
+        }
+        return t; 
+    }
+
     const PrintInstances&        instances() const      { return m_instances; }
     PrintInstances &instances() { return m_instances; }
+
+    // ORCA_BELT
+    BeltSlicingParams            get_belt_slicing_params() const;
 
     // Whoever will get a non-const pointer to PrintObject will be able to modify its layers.
     LayerPtrs&                   layers()               { return m_layers; }

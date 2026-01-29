@@ -1,0 +1,14 @@
+{
+    "type": "machine_model",
+    "name": "IdeaFormer IR3 V2",
+    "model_id": "IdeaFormer IR3 V2",
+    "from": "system",
+    "instantiation": "false",
+    "nozzle_diameter": "0.4",
+    "machine_tech": "FFF",
+    "family": "IdeaFormer Belt",
+    "bed_model": "",
+    "bed_texture": "",
+    "hotend_model": "",
+    "default_materials": "Generic PLA @IdeaFormer;Generic PETG @IdeaFormer"
+}
