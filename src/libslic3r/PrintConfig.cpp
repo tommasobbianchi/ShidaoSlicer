@@ -706,6 +706,28 @@ void PrintConfigDef::init_common_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloat(100.0));
 
+    // Belt Printer Options
+    def = this->add("printer_is_belt", coBool);
+    def->label = L("Belt Printer");
+    def->tooltip = L("Enable Belt Printer specific slicing and G-code generation (Infinite Z).");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def = this->add("belt_angle", coFloat);
+    def->label = L("Belt Angle");
+    def->tooltip = L("Angle of the gantry relative to the vertical plane (usually 45 degrees).");
+    def->sidetext = u8"°";
+    def->min = 0;
+    def->max = 90;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(45.0));
+
+    def = this->add("belt_wall_enabled", coBool);
+    def->label = L("Belt Wall");
+    def->tooltip = L("Enable a wall loop on the belt surface for adhesion.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def           = this->add("extruder_printable_height", coFloats);
     def->label    = L("Extruder printable height");
     def->tooltip  = L("Maximum printable height of this extruder which is limited by mechanism of printer.");

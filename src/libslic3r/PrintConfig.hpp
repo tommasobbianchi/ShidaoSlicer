@@ -1444,8 +1444,10 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,              initial_layer_print_height))
     ((ConfigOptionFloat,              initial_layer_speed))
     // Orca: Belt Printer
+    ((ConfigOptionBool,               printer_is_belt))
     ((ConfigOptionFloat,              belt_angle))
     ((ConfigOptionEnum<BeltAxis>,     belt_axis))
+    ((ConfigOptionBool,               belt_wall_enabled))
 
     //BBS
     ((ConfigOptionFloat,              initial_layer_infill_speed))
