@@ -9,12 +9,7 @@
 #include "PrintConfig.hpp"
 #include "GCode/CoolingBuffer.hpp"
 
-// Forward declaration for belt printer support
-namespace Slic3r {
-namespace BeltPrinter { 
-    struct BeltMachineProfile;
-}
-}
+#include "BeltTransform.hpp"
 
 namespace Slic3r {
 
@@ -133,12 +128,12 @@ public:
     GCodeFlavor get_gcode_flavor() const { return config.gcode_flavor; }
     
     // Belt printer support
-    void set_belt_profile(const BeltPrinter::BeltMachineProfile* profile) { 
-        m_belt_profile = profile; 
+    void configure_belt(bool enabled, double angle) { 
+        m_is_belt = enabled;
+        m_belt_angle = angle;
     }
-    const BeltPrinter::BeltMachineProfile* get_belt_profile() const { 
-        return m_belt_profile; 
-    }
+    bool is_belt() const { return m_is_belt; }
+    double belt_angle() const { return m_belt_angle; }
 
     // Returns whether this flavor supports separate print and travel acceleration.
     static bool supports_separate_travel_acceleration(GCodeFlavor flavor);
@@ -192,8 +187,9 @@ public:
     double          m_current_speed;
     bool            m_is_first_layer = true;
     
-    // Belt printer profile for coordinate transformation
-    const BeltPrinter::BeltMachineProfile* m_belt_profile = nullptr;
+    // Belt printer params
+    bool   m_is_belt = false;
+    double m_belt_angle = 0.0;
 
     enum class Acceleration {
         Travel,
@@ -209,8 +205,8 @@ public:
 
 class GCodeFormatter {
 public:
-    GCodeFormatter(const BeltPrinter::BeltMachineProfile* belt_profile = nullptr)
-        : m_belt_profile(belt_profile) {
+    GCodeFormatter(bool is_belt = false, double belt_angle = 0.0)
+        : m_is_belt(is_belt), m_belt_angle(belt_angle) {
         this->buf_end = buf + buflen;
         this->ptr_err.ptr = this->buf;
     }
@@ -253,9 +249,10 @@ public:
 
     void emit_xy(const Vec3d &point) {
         Vec3d final_point = point;
-        if (m_belt_profile != nullptr) {
-            extern Vec3d apply_belt_transform_V_to_F(const Vec3d& point_V, const BeltPrinter::BeltMachineProfile& profile, double z_offset);
-            final_point = apply_belt_transform_V_to_F(point, *m_belt_profile, m_z_offset);
+        if (m_is_belt) {
+            Vec3d p = point;
+            p.z() += m_z_offset;
+            final_point = BeltTransform::inverse_transform_point(p, m_belt_angle);
         }
         this->emit_axis('X', final_point.x(), XYZF_EXPORT_DIGITS);
         this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);
@@ -264,21 +261,17 @@ public:
     void emit_xyz(const Vec3d &point) {
         Vec3d final_point = point;
         
-        // Apply V→F transformation for belt printer if profile is set
-        if (m_belt_profile != nullptr) {
-            // Forward declare to avoid circular dependency
-            // Actual implementation requires BeltTransforms.hpp include in .cpp
-            extern Vec3d apply_belt_transform_V_to_F(
-                const Vec3d& point_V, 
-                const BeltPrinter::BeltMachineProfile& profile,
-                double z_offset);
-            
-            final_point = apply_belt_transform_V_to_F(point, *m_belt_profile, m_z_offset);
+        if (m_is_belt) {
+            Vec3d p = point;
+            p.z() += m_z_offset;
+            final_point = BeltTransform::inverse_transform_point(p, m_belt_angle);
+        } else {
+             final_point.z() += m_z_offset;
         }
         
         this->emit_axis('X', final_point.x(), XYZF_EXPORT_DIGITS);
         this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);
-        this->emit_z(final_point.z());
+        this->emit_axis('Z', final_point.z(), XYZF_EXPORT_DIGITS);
     }
 
     void emit_z(const double z) {
@@ -286,13 +279,14 @@ public:
     }
 
     void emit_z(const Vec3d &point) {
-        if (m_belt_profile != nullptr) {
-            extern Vec3d apply_belt_transform_V_to_F(const Vec3d& point_V, const BeltPrinter::BeltMachineProfile& profile, double z_offset);
-            Vec3d final_point = apply_belt_transform_V_to_F(point, *m_belt_profile, m_z_offset);
+        if (m_is_belt) {
+            Vec3d p = point;
+            p.z() += m_z_offset;
+            Vec3d final_point = BeltTransform::inverse_transform_point(p, m_belt_angle);
             this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);
             this->emit_axis('Z', final_point.z(), XYZF_EXPORT_DIGITS);
         } else {
-            this->emit_axis('Z', point.z(), XYZF_EXPORT_DIGITS);
+            this->emit_axis('Z', point.z() + m_z_offset, XYZF_EXPORT_DIGITS);
         }
     }
 
@@ -327,7 +321,8 @@ public:
     }
 
 protected:
-    const BeltPrinter::BeltMachineProfile* m_belt_profile = nullptr;
+    bool   m_is_belt = false;
+    double m_belt_angle = 0.0;
     double m_z_offset = 0.0;
     
     static constexpr const size_t   buflen = 256;
@@ -338,8 +333,8 @@ protected:
 
 class GCodeG1Formatter : public GCodeFormatter {
 public:
-    GCodeG1Formatter(const BeltPrinter::BeltMachineProfile* belt_profile = nullptr) 
-        : GCodeFormatter(belt_profile) {
+    GCodeG1Formatter(bool is_belt = false, double angle = 0.0) 
+        : GCodeFormatter(is_belt, angle) {
         this->buf[0] = 'G';
         this->buf[1] = '1';
         this->buf_end = buf + buflen;
@@ -352,7 +347,8 @@ public:
 
 class GCodeG2G3Formatter : public GCodeFormatter {
 public:
-    GCodeG2G3Formatter(bool is_ccw) {
+    GCodeG2G3Formatter(bool is_ccw, bool is_belt = false, double angle = 0.0) 
+        : GCodeFormatter(is_belt, angle) {
         this->buf[0] = 'G';
         this->buf[1] = is_ccw ? '3' : '2';
         this->buf_end = buf + buflen;

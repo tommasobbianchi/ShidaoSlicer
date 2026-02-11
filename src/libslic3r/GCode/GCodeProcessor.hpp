@@ -264,6 +264,14 @@ class Print;
         std::map<std::pair<int,int>, int > filament_change_count_map;
 
         BedType bed_type = BedType::btCount;
+        
+        // ORCA_BELT: Belt printer info parsed from G-code headers
+        bool is_belt_printer = false;
+        double belt_gantry_angle = 0.0;
+        double belt_base_y = 0.0;
+        double belt_base_z = 0.0;
+        Vec3d belt_dimension = Vec3d::Zero();
+        
 #if ENABLE_GCODE_VIEWER_STATISTICS
         int64_t time{ 0 };
 #endif // ENABLE_GCODE_VIEWER_STATISTICS

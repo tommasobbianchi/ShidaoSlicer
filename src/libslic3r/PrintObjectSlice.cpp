@@ -1153,6 +1153,11 @@ void PrintObject::slice_volumes()
             }
         }
 
+        // ORCA_BELT: Belt frame transform is handled by trafo_centered() which is
+        // passed to slice_volumes_inner() as slice_trafo. No need to modify mesh vertices.
+        // The transform pipeline is: slice_trafo (from trafo_centered) -> params2.trafo 
+        // -> applied to mesh in slice_mesh_ex(). This achieves inclined plane slicing.
+
         objSliceByVolume = slice_volumes_inner(
             print->config(), this->config(), slice_trafo,
             this->model_object()->volumes, m_shared_regions->layer_ranges, slice_zs, throw_on_cancel_callback);
@@ -1168,6 +1173,9 @@ void PrintObject::slice_volumes()
     std::vector<std::vector<ExPolygons>> region_slices =
         slices_to_regions(print->config(), *this, this->model_object()->volumes, *m_shared_regions, slice_zs,
                           std::move(objSliceByVolume), PrintObject::clip_multipart_objects, throw_on_cancel_callback);
+
+    // No post-slicing transform needed - mesh was rotated before slicing
+    // Inverse transform will be applied during G-code generation
 
     for (size_t region_id = 0; region_id < region_slices.size(); ++ region_id) {
         std::vector<ExPolygons> &by_layer = region_slices[region_id];
@@ -1545,24 +1553,8 @@ std::vector<Polygons> PrintObject::slice_support_volumes(const ModelVolumeType m
         // ORCA_BELT: Shear Logic
         Transform3d base_trafo = this->trafo_centered();
         BeltSlicingParams belt_params = this->get_belt_slicing_params();
-        Transform3d slice_trafo;
-        
-        if (belt_params.angle != 0.0) {
-             // Construct Shear Matrix: Z_s = Z_m + Y_m * tan(alpha)
-             // Note: We use the same logic as slice_volumes
-             Transform3d shear = Transform3d::Identity();
-             shear(2, 1) = std::tan(belt_params.angle);
-             
-             slice_trafo = shear * base_trafo;
-             
-             BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
-             if (bbox.defined) {
-                 bbox = bbox.transformed(slice_trafo);
-                 slice_trafo.pretranslate(Vec3d(0, 0, -bbox.min.z()));
-             }
-        } else {
-            slice_trafo = base_trafo;
-        }
+        // ORCA_BELT: belt transform is already applied in base_trafo (via trafo_centered)
+        Transform3d slice_trafo = base_trafo;
         params.trafo = slice_trafo;
         for (; it_volume != it_volume_end; ++ it_volume)
             if ((*it_volume)->type() == model_volume_type) {

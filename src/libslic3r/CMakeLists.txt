@@ -474,8 +474,8 @@ set(lisbslic3r_sources
     BeltPrinter/BeltPlacement.hpp
     BeltPrinter/BeltRaft.cpp
     BeltPrinter/BeltRaft.hpp
-    BeltPrinter/BeltTransforms.cpp
-    BeltPrinter/BeltTransforms.hpp
+    BeltTransform.cpp
+    BeltTransform.hpp
     BeltPrinter/CompatibilityMode.cpp
     BeltPrinter/CompatibilityMode.hpp
     BeltPrinter/DirectionalSupports.cpp
@@ -510,7 +510,14 @@ set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE ON CACHE BOOL "" FORCE)
 cmake_policy(PUSH)
 cmake_policy(SET CMP0011 NEW)
 find_package(CGAL REQUIRED)
-find_package(OpenCV REQUIRED core)
+find_package(OpenCV REQUIRED core imgproc imgcodecs)
+find_path(IMATH_INCLUDE_DIR NAMES ImathVec.h PATH_SUFFIXES Imath OpenEXR)
+find_library(IMATH_LIB NAMES Imath-3_1 Imath Imath-2_5)
+if (NOT IMATH_LIB OR NOT IMATH_INCLUDE_DIR)
+    message(WARNING "Imath not found! IMATH_LIB=${IMATH_LIB} IMATH_INCLUDE_DIR=${IMATH_INCLUDE_DIR}")
+endif()
+target_include_directories(libslic3r SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS} ${IMATH_INCLUDE_DIR})
+target_link_libraries(libslic3r PRIVATE ${IMATH_LIB})
 cmake_policy(POP)
 
 add_library(libslic3r_cgal STATIC 
@@ -521,6 +528,13 @@ add_library(libslic3r_cgal STATIC
     Triangulation.hpp Triangulation.cpp
 )
 target_include_directories(libslic3r_cgal PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+# Explicitly find Blosc for OpenVDB dependency
+find_library(BLOSC_LIB NAMES blosc)
+if (NOT BLOSC_LIB)
+    message(WARNING "Blosc library not found by find_library, linking might fail if OpenVDB needs it")
+endif()
+
 
 # Reset compile options of libslic3r_cgal. Despite it being linked privately, CGAL options
 # (-frounding-math) still propagate to dependent libs which is not desired.
@@ -592,13 +606,18 @@ target_link_libraries(libslic3r
         libigl
         libnest2d
         miniz
-        opencv_world
+        ${OpenCV_LIBS}
+        ${IMATH_LIB}
     PRIVATE
         ${CMAKE_DL_LIBS}
         ${EXPAT_LIBRARIES}
         ${OCCT_LIBS}
         boost_libs
+        Boost::iostreams
+        TBB::tbb
+        ${BLOSC_LIB}
         cereal::cereal
+        OpenVDB::openvdb
         clipper
         Clipper2
         eigen

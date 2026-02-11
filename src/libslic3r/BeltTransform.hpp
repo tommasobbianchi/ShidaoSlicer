@@ -27,6 +27,12 @@ public:
 
     // Apply inverse transform to a single point explicitly (High precision)
     static Vec3d inverse_transform_point(const Vec3d& virtual_pt, double angle_degree);
+
+    // Get the Z-shift value from config (applied in trafo_centered after belt transform)
+    static double get_trafo_z_shift();
+
+    // Force reload of configuration from belt_transform.ini
+    static void reload_config();
 };
 
 } // namespace Slic3r

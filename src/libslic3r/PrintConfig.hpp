@@ -1448,6 +1448,7 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,              belt_angle))
     ((ConfigOptionEnum<BeltAxis>,     belt_axis))
     ((ConfigOptionBool,               belt_wall_enabled))
+    ((ConfigOptionBool,               belt_inclined_gcode))
 
     //BBS
     ((ConfigOptionFloat,              initial_layer_infill_speed))

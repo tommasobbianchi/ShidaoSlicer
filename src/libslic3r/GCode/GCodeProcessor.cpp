@@ -2975,6 +2975,38 @@ bool GCodeProcessor::get_last_position_from_gcode(const std::string &gcode_str, 
 
 void GCodeProcessor::process_tags(const std::string_view comment, bool producers_enabled)
 {
+    // ORCA_BELT: Parse belt printer headers (IdeaMaker compatible)
+    if (boost::starts_with(comment, "Belt Printer:")) {
+        int value = 0;
+        if (parse_number(comment.substr(13), value))
+            m_result.is_belt_printer = (value == 1);
+        return;
+    }
+    if (boost::starts_with(comment, "Belt Gantry Angle:")) {
+        parse_number(comment.substr(18), m_result.belt_gantry_angle);
+        return;
+    }
+    if (boost::starts_with(comment, "Belt Base Y:")) {
+        parse_number(comment.substr(12), m_result.belt_base_y);
+        return;
+    }
+    if (boost::starts_with(comment, "Belt Base Z:")) {
+        parse_number(comment.substr(12), m_result.belt_base_z);
+        return;
+    }
+    if (boost::starts_with(comment, "Dimension:")) {
+        // Parse "250.000 9999.000 250.000 0.400" format
+        std::string dim_str(comment.substr(10));
+        std::vector<std::string> parts;
+        boost::split(parts, dim_str, boost::is_any_of(" "), boost::token_compress_on);
+        if (parts.size() >= 3) {
+            m_result.belt_dimension.x() = string_to_double_decimal_point(parts[0]);
+            m_result.belt_dimension.y() = string_to_double_decimal_point(parts[1]);
+            m_result.belt_dimension.z() = string_to_double_decimal_point(parts[2]);
+        }
+        return;
+    }
+    
     // producers tags
     if (producers_enabled && process_producers_tags(comment))
         return;

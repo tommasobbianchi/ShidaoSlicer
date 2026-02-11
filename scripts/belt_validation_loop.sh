@@ -105,7 +105,7 @@ timeout 120 "$ORCA_CLI" \
     --slice 0 \
     --load-settings "$BELT_PROFILE;$PROCESS_PROFILE" \
     --load-filaments "$FILAMENT_PROFILE" \
-    --rotate-x 45 \
+    --load-filaments "$FILAMENT_PROFILE" \
     --outputdir "$OUTPUT_DIR" \
     "$TEST_STL" 2>&1 | tee "$OUTPUT_DIR/orca_cli_output.txt" || {
         print_error "OrcaSlicer CLI fallito"

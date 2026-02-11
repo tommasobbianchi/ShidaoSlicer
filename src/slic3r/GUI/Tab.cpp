@@ -4436,6 +4436,12 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("bed_mesh_probe_distance", "printer_basic_information_adaptive_bed_mesh#probe-point-distance");
         optgroup->append_single_option_line("adaptive_bed_mesh_margin", "printer_basic_information_adaptive_bed_mesh#mesh-margin");
 
+        optgroup = page->new_optgroup(L("Belt Printer"), "param_belt_printer");
+        optgroup->append_single_option_line("printer_is_belt");
+        optgroup->append_single_option_line("belt_angle");
+        optgroup->append_single_option_line("belt_inclined_gcode");
+        optgroup->append_single_option_line("belt_wall_enabled");
+
         optgroup = page->new_optgroup(L("Accessory"), "param_accessory");
         optgroup->append_single_option_line("nozzle_type", "printer_basic_information_accessory#nozzle-type");
         optgroup->append_single_option_line("nozzle_hrc", "printer_basic_information_accessory#nozzle-hrc");

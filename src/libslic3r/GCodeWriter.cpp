@@ -1,7 +1,6 @@
 #include "GCodeWriter.hpp"
 #include "CustomGCode.hpp"
 #include "PrintConfig.hpp"
-#include "BeltPrinter/BeltTransforms.hpp"
 #include "Geometry.hpp"
 #include <algorithm>
 #include <iomanip>
@@ -26,40 +25,6 @@ bool GCodeWriter::full_gcode_comment = true;
 // 1. Inverse shear: remove the 45° shear effect
 // 2. Z↔Y swap: convert back to physical belt coordinates
 //    Physical: Y = belt movement, Z = layer height
-Vec3d apply_belt_transform_V_to_F(
-    const Vec3d& point_S, // Slicer coordinates (in rotated+sheared frame)
-    const BeltPrinter::BeltMachineProfile& profile,
-    double z_offset)
-{
-    // point_S.y() is the Slicer Y axis, which maps to the Belt Movement Axis.
-    // point_S.z() is the Slicer Z axis, which maps to the Vertical/Height Axis.
-
-    double alpha_rad = Slic3r::Geometry::deg2rad(profile.gantry_angle_theta_deg);
-    double tan_alpha = std::tan(alpha_rad);
-    
-    // We must subtract the belt offset (z_offset) from the Belt Axis coordinate (point_S.y())
-    // to get the local belt position.
-    double belt_pos = point_S.y() - z_offset;
-
-    Vec3d p_final;
-    p_final.x() = point_S.x();
-    
-    // Machine Z is the Belt Axis.
-    p_final.z() = belt_pos;
-    
-    // Machine Y is the Height Axis.
-    // We shear based on the *local* belt position.
-    p_final.y() = point_S.z() - belt_pos * tan_alpha;
-    
-    static int log_limit = 0;
-    if (log_limit++ < 20) {
-        printf("BELT_DEBUG: S=(%.2f, %.2f, %.2f) Offset=%.2f Final=(%.2f, %.2f, %.2f)\n", 
-               point_S.x(), point_S.y(), point_S.z(), z_offset, 
-               p_final.x(), p_final.y(), p_final.z());
-    }
-    
-    return p_final;
-}
 
 bool GCodeWriter::supports_separate_travel_acceleration(GCodeFlavor flavor)
 {
@@ -84,6 +49,10 @@ void GCodeWriter::apply_print_config(const PrintConfig &print_config)
     };
     m_max_jerk_z = print_config.machine_max_jerk_z.values.front();
     m_max_jerk_e = print_config.machine_max_jerk_e.values.front();
+
+    // Belt Setup
+    m_is_belt = print_config.printer_is_belt.value || (print_config.printer_structure.value == PrinterStructure::psBelt);
+    m_belt_angle = print_config.belt_angle.value;
 }
 
 void GCodeWriter::set_extruders(std::vector<unsigned int> extruder_ids)
@@ -561,8 +530,8 @@ std::string GCodeWriter::set_speed(double F, const std::string &comment, const s
     assert(F < 100000.);
     
     m_current_speed = F;
-    GCodeG1Formatter w(m_belt_profile);
-    if (m_belt_profile) w.set_z_offset(m_y_offset);
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    // if (m_belt_profile) w.set_z_offset(m_y_offset);
     w.emit_f(F);
     //BBS
     w.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -579,8 +548,8 @@ std::string GCodeWriter::travel_to_xy(const Vec2d &point, const std::string &com
     //BBS: take plate offset into consider
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
-    GCodeG1Formatter w(m_belt_profile);
-    if (m_belt_profile) w.set_z_offset(m_y_offset);
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    // if (m_belt_profile) w.set_z_offset(m_y_offset);
     w.emit_xy(Vec3d(point_on_plate.x(), point_on_plate.y(), m_pos(2)));
     auto speed = m_is_first_layer
         ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
@@ -709,8 +678,10 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
                 //  /       to make the z list early to avoid to hit some warping place when travel is long.
                 Vec2d temp = delta_no_z.normalized() * delta(2) / tan(this->filament()->travel_slope());
                 Vec3d slope_top_point = Vec3d(temp(0), temp(1), delta(2)) + source;
-                GCodeG1Formatter w0(m_belt_profile);
-                if (m_belt_profile) w0.set_z_offset(m_y_offset);
+                GCodeG1Formatter w0(m_is_belt, m_belt_angle);
+                // ORCA_BELT: Legacy code removed
+                // if (m_belt_profile) w0.set_z_offset(m_y_offset);
+
                 w0.emit_xyz(slope_top_point);
                 w0.emit_f(travel_speed * 60.0);
                 //BBS
@@ -724,8 +695,10 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
 
         std::string xy_z_move;
         {
-            GCodeG1Formatter w0(m_belt_profile);
-            if (m_belt_profile) w0.set_z_offset(m_y_offset);
+            GCodeG1Formatter w0(m_is_belt, m_belt_angle);
+            // ORCA_BELT: Legacy code removed
+            // if (m_belt_profile) w0.set_z_offset(m_y_offset);
+
             if (this->is_current_position_clear()) {
                 w0.emit_xyz(target);
                 w0.emit_f(travel_speed * 60.0);
@@ -763,8 +736,8 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
     //BBS: take plate offset into consider
     Vec3d point_on_plate = { dest_point(0) - m_x_offset, dest_point(1) - m_y_offset, dest_point(2) };
     std::string out_string;
-    GCodeG1Formatter w(m_belt_profile);
-    if (m_belt_profile) w.set_z_offset(m_y_offset);
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    // if (m_belt_profile) w.set_z_offset(m_y_offset);
     if (!this->is_current_position_clear())
     {
         //force to move xy first then z after filament change
@@ -773,8 +746,8 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         w.emit_comment(GCodeWriter::full_gcode_comment, comment);
         out_string = w.string() + _travel_to_z(point_on_plate.z(), comment);
     } else {
-        GCodeG1Formatter w(m_belt_profile);
-        if (m_belt_profile) w.set_z_offset(m_y_offset);
+        GCodeG1Formatter w(m_is_belt, m_belt_angle);
+        // if (m_belt_profile) w.set_z_offset(m_y_offset);
         w.emit_xyz(point_on_plate);
         w.emit_f(this->config.travel_speed.value * 60.0);
         w.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -815,8 +788,8 @@ std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
                                  : this->config.travel_speed.value;
     }
 
-    GCodeG1Formatter w(m_belt_profile);
-    if (m_belt_profile) w.set_z_offset(m_y_offset);
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    // if (m_belt_profile) w.set_z_offset(m_y_offset);
     w.emit_z(Vec3d(m_pos(0), m_pos(1), z));
     w.emit_f(speed * 60.0);
     //BBS
@@ -867,7 +840,7 @@ std::string GCodeWriter::_spiral_travel_to_z(double z, const Vec2d &ij_offset, c
     } else { // Orca: if arc fitting is enabled emit a G2/G3 command for the spiral lift
         output = std::string("G17") + (full_gcode_comment ? " ; XY plane for arc\n" : "\n");
 
-        GCodeG2G3Formatter w(true);
+        GCodeG2G3Formatter w(true, m_is_belt, m_belt_angle);
         w.emit_z(z);
         w.emit_ij(ij_offset);
         w.emit_string(" P1 ");
@@ -911,8 +884,8 @@ std::string GCodeWriter::extrude_to_xy(const Vec2d &point, double dE, const std:
     //BBS: take plate offset into consider
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
-    GCodeG1Formatter w(m_belt_profile);
-    if (m_belt_profile) w.set_z_offset(m_y_offset);
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    // if (m_belt_profile) w.set_z_offset(m_y_offset);
     w.emit_xy(Vec3d(point_on_plate.x(), point_on_plate.y(), m_pos(2)));
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
@@ -933,7 +906,7 @@ std::string GCodeWriter::extrude_arc_to_xy(const Vec2d& point, const Vec2d& cent
 
     Vec2d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset };
 
-    GCodeG2G3Formatter w(is_ccw);
+    GCodeG2G3Formatter w(is_ccw, m_is_belt, m_belt_angle);
     w.emit_xy(Vec3d(point_on_plate.x(), point_on_plate.y(), m_pos(2)));
     w.emit_ij(center_offset);
     if (!force_no_extrusion)
@@ -953,8 +926,8 @@ std::string GCodeWriter::extrude_to_xyz(const Vec3d &point, double dE, const std
     //BBS: take plate offset into consider
     Vec3d point_on_plate = { point(0) - m_x_offset, point(1) - m_y_offset, point(2) };
 
-    GCodeG1Formatter w(m_belt_profile);
-    if (m_belt_profile) w.set_z_offset(m_y_offset);
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    // if (m_belt_profile) w.set_z_offset(m_y_offset);
     w.emit_xyz(point_on_plate);
     if (!force_no_extrusion)
         w.emit_e(filament()->E());
@@ -1000,8 +973,8 @@ std::string GCodeWriter::_retract(double length, double restart_extra, const std
         }
         else {
             // BBS
-            GCodeG1Formatter w(m_belt_profile);
-            if (m_belt_profile) w.set_z_offset(m_y_offset);
+            GCodeG1Formatter w(m_is_belt, m_belt_angle);
+            // if (m_belt_profile) w.set_z_offset(m_y_offset);
             w.emit_e(filament()->E());
             w.emit_f(filament()->retract_speed() * 60.);
             // BBS
@@ -1031,8 +1004,8 @@ std::string GCodeWriter::unretract()
         else {
             //BBS
             // use G1 instead of G0 because G0 will blend the restart with the previous travel move
-            GCodeG1Formatter w(m_belt_profile);
-            if (m_belt_profile) w.set_z_offset(m_y_offset);
+            GCodeG1Formatter w(m_is_belt, m_belt_angle);
+            // if (m_belt_profile) w.set_z_offset(m_y_offset);
             w.emit_e(filament()->E());
             w.emit_f(filament()->deretract_speed() * 60.);
             //BBS

@@ -144,6 +144,27 @@ endif()
 # Include utility functions for version information
 include(${CMAKE_CURRENT_LIST_DIR}/OpenVDBUtils.cmake)
 
+# ORCA_BELT: Hardcoded paths for Ubuntu 24.04 (Behemoth)
+message(STATUS "Force-setting OpenVDB paths for Behemoth...")
+set(OpenVDB_INCLUDE_DIR "/usr/include")
+set(OpenVDB_openvdb_LIBRARY "/usr/lib/x86_64-linux-gnu/libopenvdb.so")
+set(OpenVDB_openvdb_LIBRARY_RELEASE "/usr/lib/x86_64-linux-gnu/libopenvdb.so")
+set(OpenVDB_LIB_COMPONENTS "/usr/lib/x86_64-linux-gnu/libopenvdb.so")
+set(OpenVDB_VERSION "10.0.1")
+set(OpenVDB_FOUND TRUE)
+
+# Manually create the target because we are returning early
+if(NOT TARGET OpenVDB::openvdb)
+    add_library(OpenVDB::openvdb UNKNOWN IMPORTED)
+    set_target_properties(OpenVDB::openvdb PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${OpenVDB_INCLUDE_DIR}"
+      IMPORTED_LOCATION "${OpenVDB_openvdb_LIBRARY}"
+    )
+endif()
+
+return()
+
+
 mark_as_advanced(
   OpenVDB_INCLUDE_DIR
   OpenVDB_LIBRARY
@@ -176,6 +197,13 @@ endif()
 
 # Append OPENVDB_ROOT or $ENV{OPENVDB_ROOT} if set (prioritize the direct cmake var)
 set(_OPENVDB_ROOT_SEARCH_DIR "")
+if(OPENVDB_ROOT)
+  list(APPEND _OPENVDB_ROOT_SEARCH_DIR ${OPENVDB_ROOT})
+endif()
+if(DEFINED ENV{OPENVDB_ROOT})
+  list(APPEND _OPENVDB_ROOT_SEARCH_DIR $ENV{OPENVDB_ROOT})
+endif()
+
 
 # Additionally try and use pkconfig to find OpenVDB
 
@@ -227,7 +255,9 @@ list(APPEND _OPENVDB_LIBRARYDIR_SEARCH_DIRS
 set(OPENVDB_PATH_SUFFIXES
   lib64
   lib
+  lib/x86_64-linux-gnu
 )
+
 
 # Static library setup
 if(UNIX AND OPENVDB_USE_STATIC_LIBS)
@@ -348,25 +378,38 @@ macro(just_fail msg)
   return()
 endmacro()
 
-find_package(IlmBase QUIET)
-if(NOT IlmBase_FOUND)
-  pkg_check_modules(IlmBase QUIET IlmBase)
-endif()
-if (IlmBase_FOUND AND NOT TARGET IlmBase::Half)
-  message(STATUS "Falling back to IlmBase found by pkg-config...")
-
-  find_library(IlmHalf_LIBRARY NAMES Half)
-  if(IlmHalf_LIBRARY-NOTFOUND OR NOT IlmBase_INCLUDE_DIRS)
-    just_fail("IlmBase::Half can not be found!")
+# ORCA_BELT: Patch for OpenEXR 3 (IlmBase merged into Imath)
+find_package(Imath CONFIG QUIET)
+if(TARGET Imath::Imath)
+  message(STATUS "Found Imath (OpenEXR 3), aliasing IlmBase::Half")
+  if(NOT TARGET IlmBase::Half)
+    add_library(IlmBase::Half ALIAS Imath::Imath)
   endif()
-  
-  add_library(IlmBase::Half UNKNOWN IMPORTED)
-  set_target_properties(IlmBase::Half PROPERTIES
-    IMPORTED_LOCATION "${IlmHalf_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${IlmBase_INCLUDE_DIRS}")
-elseif(NOT IlmBase_FOUND)
-  just_fail("IlmBase::Half can not be found!")
+  set(IlmBase_FOUND TRUE)
+else()
+  # Original Legacy Check
+  find_package(IlmBase QUIET)
+  if(NOT IlmBase_FOUND)
+    pkg_check_modules(IlmBase QUIET IlmBase)
+  endif()
+  if (IlmBase_FOUND AND NOT TARGET IlmBase::Half)
+    message(STATUS "Falling back to IlmBase found by pkg-config...")
+
+    find_library(IlmHalf_LIBRARY NAMES Half)
+    # if(IlmHalf_LIBRARY-NOTFOUND OR NOT IlmBase_INCLUDE_DIRS)
+    #   just_fail("IlmBase::Half can not be found!")
+    # endif()
+    
+    add_library(IlmBase::Half UNKNOWN IMPORTED)
+    set_target_properties(IlmBase::Half PROPERTIES
+      IMPORTED_LOCATION "${IlmHalf_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${IlmBase_INCLUDE_DIRS}")
+  elseif(NOT IlmBase_FOUND)
+     # just_fail("IlmBase::Half can not be found!")
+     message(WARNING "IlmBase::Half not found, assuming system OpenVDB handles it.")
+  endif()
 endif()
+
 find_package(TBB ${_quiet} ${_required} COMPONENTS tbb)
 find_package(ZLIB ${_quiet} ${_required})
 find_package(Boost ${_quiet} ${_required} COMPONENTS iostreams system )

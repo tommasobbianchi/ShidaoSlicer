@@ -728,6 +728,12 @@ void PrintConfigDef::init_common_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
+    def = this->add("belt_inclined_gcode", coBool);
+    def->label = L("Inclined G-code");
+    def->tooltip = L("Generate true inclined G-code where Z varies with Y position within each layer.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
+
     def           = this->add("extruder_printable_height", coFloats);
     def->label    = L("Extruder printable height");
     def->tooltip  = L("Maximum printable height of this extruder which is limited by mechanism of printer.");

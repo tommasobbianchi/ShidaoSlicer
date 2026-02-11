@@ -20,6 +20,12 @@ id
 ls -l /dev/dri/card0 2>/dev/null || echo "No /dev/dri/card0 access"
 echo "-----------------------"
 
+# Link resources if needed
+if [ ! -L "$PROJECT_DIR/build/src/Release/resources" ]; then
+    echo "Linking resources..."
+    ln -s "$PROJECT_DIR/resources" "$PROJECT_DIR/build/src/Release/resources"
+fi
+
 if [ -f "$BINARY" ]; then
     "$BINARY" "$@" > "$PROJECT_DIR/launch.log" 2>&1
 else

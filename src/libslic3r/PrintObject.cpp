@@ -3394,13 +3394,9 @@ void PrintObject::update_slicing_parameters()
         if (belt_params.angle != 0.0) {
             BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
             if (bbox.defined) {
-                // Apply combined transform: center offset + shear
-                Transform3d shear = Transform3d::Identity();
-                shear(2, 1) = std::tan(belt_params.angle); 
-                Transform3d trafo = shear * this->trafo_centered();
-                
-                bbox = bbox.transformed(trafo);
-                // Adjust so that min_z is 0 (we will shift during slicing)
+                // trafo_centered() already includes belt_forward transform
+                bbox = bbox.transformed(this->trafo_centered());
+                // Use full height of rotated bounding box
                 max_z = float(bbox.max.z() - bbox.min.z());
             }
         }

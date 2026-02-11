@@ -43,3 +43,8 @@ test.js
 /.cache/
 .clangd
 deps_ref/
+.venv/
+squashfs-root/
+src/package/
+.claude/
+validation_output/

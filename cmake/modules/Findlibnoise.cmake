@@ -1,4 +1,11 @@
+# ORCA_BELT: Hardcoded paths for Behemoth
+set(LIBNOISE_INCLUDE_DIR "/usr/include")
+set(LIBNOISE_LIBRARY_RELEASE "/usr/lib/libnoise.so")
+set(libnoise_LIB_FOUND TRUE)
+set(libnoise_FOUND TRUE)
+
 find_path(LIBNOISE_INCLUDE_DIR libnoise/noise.h)
+
 find_library(LIBNOISE_LIBRARY_RELEASE NAMES libnoise libnoise_static liblibnoise_static)
 find_library(LIBNOISE_LIBRARY_DEBUG NAMES libnoised libnoise_staticd liblibnoise_staticd)
 
