@@ -133,6 +133,9 @@ public:
     coordf_t            height;        // layer height in unscaled coordinates
     coordf_t            bottom_z() const { return this->print_z - this->height; }
 
+    // ORCA_BELT: Slicing normal direction (UnitZ for standard, tilted for belt printers)
+    Vec3d               slice_normal = Vec3d::UnitZ();
+
     //Extrusions estimated to be seriously malformed, estimated during "Estimating curled extrusions" step. These lines should be avoided during fast travels.
     CurledLines         curled_lines;
 

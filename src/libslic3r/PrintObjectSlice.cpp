@@ -8,6 +8,7 @@
 #include "Layer.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
+#include "BeltPrinter/MachineProfile.hpp"
 //BBS
 #include "ShortestPath.hpp"
 #include "libslic3r/Feature/Interlocking/InterlockingGenerator.hpp"
@@ -800,6 +801,16 @@ void PrintObject::slice()
     m_layers = new_layers(this, generate_object_layers(m_slicing_params, layer_height_profile, m_config.precise_z_height.value));
     this->slice_volumes();
     m_print->throw_if_canceled();
+
+    // ORCA_BELT: Set slice_normal for belt printer layers
+    if (this->is_belt_printer()) {
+        const auto& profile = *this->belt_profile();
+        // Slicing normal in firmware frame = V->F rotation applied to +Zv
+        Vec3d slice_normal_F = profile.V_to_F_rotation() * Vec3d::UnitZ();
+        for (Layer* layer : m_layers)
+            layer->slice_normal = slice_normal_F;
+    }
+
     int firstLayerReplacedBy = 0;
 
 #if 0
@@ -1142,21 +1153,25 @@ void PrintObject::slice_volumes()
     if (!slice_zs.empty()) {
         // ORCA_BELT: Belt frame transform is now in trafo_centered()
         Transform3d slice_trafo = this->trafo_centered();
-        
-        // Adjust Z min to 0 for belt printers (model may have shifted)
-        BeltSlicingParams belt_params = this->get_belt_slicing_params();
-        if (belt_params.angle != 0.0) {
-            BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
-            if (bbox.defined) {
-                bbox = bbox.transformed(slice_trafo);
-                slice_trafo.pretranslate(Vec3d(0, 0, -bbox.min.z()));
+
+        // ORCA_BELT: Apply F->V transform for planar slicing in V-frame
+        if (this->is_belt_printer()) {
+            const auto& profile = *this->belt_profile();
+            // Transform mesh coordinates from firmware frame to V-frame
+            // After this, standard XY-plane slicing at fixed Zv works correctly
+            Eigen::Affine3d F_to_V = profile.get_F_to_V_transform();
+            slice_trafo = F_to_V * slice_trafo;
+        } else {
+            // Legacy belt path: adjust Z min for non-V-frame belt printers
+            BeltSlicingParams belt_params = this->get_belt_slicing_params();
+            if (belt_params.angle != 0.0) {
+                BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
+                if (bbox.defined) {
+                    bbox = bbox.transformed(slice_trafo);
+                    slice_trafo.pretranslate(Vec3d(0, 0, -bbox.min.z()));
+                }
             }
         }
-
-        // ORCA_BELT: Belt frame transform is handled by trafo_centered() which is
-        // passed to slice_volumes_inner() as slice_trafo. No need to modify mesh vertices.
-        // The transform pipeline is: slice_trafo (from trafo_centered) -> params2.trafo 
-        // -> applied to mesh in slice_mesh_ex(). This achieves inclined plane slicing.
 
         objSliceByVolume = slice_volumes_inner(
             print->config(), this->config(), slice_trafo,
@@ -1550,11 +1565,13 @@ std::vector<Polygons> PrintObject::slice_support_volumes(const ModelVolumeType m
         auto               throw_on_cancel_callback = std::function<void()>([print](){ print->throw_if_canceled(); });
         MeshSlicingParamsEx params;
         
-        // ORCA_BELT: Shear Logic
-        Transform3d base_trafo = this->trafo_centered();
-        BeltSlicingParams belt_params = this->get_belt_slicing_params();
-        // ORCA_BELT: belt transform is already applied in base_trafo (via trafo_centered)
-        Transform3d slice_trafo = base_trafo;
+        // ORCA_BELT: Belt frame transform
+        Transform3d slice_trafo = this->trafo_centered();
+        if (this->is_belt_printer()) {
+            const auto& profile = *this->belt_profile();
+            Eigen::Affine3d F_to_V = profile.get_F_to_V_transform();
+            slice_trafo = F_to_V * slice_trafo;
+        }
         params.trafo = slice_trafo;
         for (; it_volume != it_volume_end; ++ it_volume)
             if ((*it_volume)->type() == model_volume_type) {

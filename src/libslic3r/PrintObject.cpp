@@ -18,6 +18,7 @@
 #include "Utils.hpp"
 #include "Fill/FillAdaptive.hpp"
 #include "Fill/FillLightning.hpp"
+#include "BeltPrinter/MachineProfile.hpp"
 #include "Format/STL.hpp"
 #include "format.hpp"
 #include "AABBTreeLines.hpp"
@@ -106,6 +107,12 @@ PrintObject::PrintObject(Print* print, ModelObject* model_object, const Transfor
     m_max_z = scaled(model_object->instance_bounding_box(0).max(2));
 
     this->set_instances(std::move(instances));
+
+    // ORCA_BELT: Initialize belt machine profile from config
+    if (print->config().printer_structure.value == PrinterStructure::psBelt) {
+        m_belt_profile = std::make_unique<BeltPrinter::BeltMachineProfile>(
+            BeltPrinter::BeltMachineProfile::create_from_config(print->config()));
+    }
 }
 
 PrintObject::~PrintObject()
@@ -3387,17 +3394,23 @@ void PrintObject::update_slicing_parameters()
 {
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
-        float max_z = this->model_object()->max_z();
-        
-        // ORCA_BELT: Adjust max_z for belt rotation
-        BeltSlicingParams belt_params = this->get_belt_slicing_params();
-        if (belt_params.angle != 0.0) {
-            BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
-            if (bbox.defined) {
-                // trafo_centered() already includes belt_forward transform
-                bbox = bbox.transformed(this->trafo_centered());
-                // Use full height of rotated bounding box
-                max_z = float(bbox.max.z() - bbox.min.z());
+        float max_z = 0;
+
+        if (this->is_belt_printer()) {
+            // ORCA_BELT: V-frame slicing parameters
+            double min_Zv, max_Zv, min_Yv;
+            get_belt_slicing_params_v_frame(*this, min_Zv, max_Zv, min_Yv);
+            max_z = float(max_Zv - min_Zv);
+        } else {
+            max_z = this->model_object()->max_z();
+            // Legacy belt path
+            BeltSlicingParams belt_params = this->get_belt_slicing_params();
+            if (belt_params.angle != 0.0) {
+                BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
+                if (bbox.defined) {
+                    bbox = bbox.transformed(this->trafo_centered());
+                    max_z = float(bbox.max.z() - bbox.min.z());
+                }
             }
         }
 
@@ -4386,6 +4399,47 @@ const Layer* PrintObject::get_layer_at_bottomz(coordf_t bottom_z, coordf_t epsil
 
 Layer* PrintObject::get_layer_at_bottomz(coordf_t bottom_z, coordf_t epsilon) { return const_cast<Layer*>(std::as_const(*this).get_layer_at_bottomz(bottom_z, epsilon)); }
 
+
+// ORCA_BELT: V-frame slicing parameters — computes bounding box in V-frame coordinates
+void PrintObject::get_belt_slicing_params_v_frame(
+    const PrintObject& obj,
+    double& min_Zv, double& max_Zv, double& min_Yv)
+{
+    if (!obj.is_belt_printer()) {
+        // Non-belt: use world Z
+        min_Zv = 0;
+        max_Zv = obj.model_object()->max_z();
+        min_Yv = 0;
+        return;
+    }
+
+    const BeltPrinter::BeltMachineProfile& profile = *obj.belt_profile();
+
+    // Compute bounding box of all model volumes in V-frame
+    double min_Zv_val = std::numeric_limits<double>::max();
+    double max_Zv_val = -std::numeric_limits<double>::max();
+    double min_Yv_val = std::numeric_limits<double>::max();
+
+    for (const ModelVolume* mv : obj.model_object()->volumes) {
+        if (!mv->is_model_part()) continue;
+
+        // Transform chain: Model -> World -> Firmware -> V-frame
+        Transform3d world_to_V = profile.get_F_to_V_transform()
+                                  * obj.trafo()
+                                  * mv->get_matrix();
+
+        for (const auto& v : mv->mesh().its.vertices) {
+            Vec3d v_in_V = world_to_V * v.cast<double>();
+            min_Zv_val = std::min(min_Zv_val, v_in_V.z());
+            max_Zv_val = std::max(max_Zv_val, v_in_V.z());
+            min_Yv_val = std::min(min_Yv_val, v_in_V.y());
+        }
+    }
+
+    min_Zv = min_Zv_val;
+    max_Zv = max_Zv_val;
+    min_Yv = min_Yv_val;
+}
 
 // ORCA_BELT
 BeltSlicingParams PrintObject::get_belt_slicing_params() const

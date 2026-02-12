@@ -40,6 +40,9 @@ class TreeSupportData;
 class TreeSupport;
 class ExtrusionLayers;
 
+// ORCA_BELT: Forward declaration for belt printer profile
+namespace BeltPrinter { struct BeltMachineProfile; }
+
 #define MAX_OUTER_NOZZLE_DIAMETER   4
 // BBS: move from PrintObjectSlice.cpp
 struct VolumeSlices
@@ -368,6 +371,12 @@ public:
 
     // ORCA_BELT
     BeltSlicingParams            get_belt_slicing_params() const;
+    static void                  get_belt_slicing_params_v_frame(
+                                     const PrintObject& obj,
+                                     double& min_Zv, double& max_Zv, double& min_Yv);
+    // ORCA_BELT: V-frame belt profile accessors
+    const BeltPrinter::BeltMachineProfile* belt_profile() const { return m_belt_profile.get(); }
+    bool                         is_belt_printer() const { return m_belt_profile != nullptr; }
 
     // Whoever will get a non-const pointer to PrintObject will be able to modify its layers.
     LayerPtrs&                   layers()               { return m_layers; }
@@ -613,9 +622,11 @@ private:
 
     PrintObject*                            m_shared_object{ nullptr };
 
-    
+    // ORCA_BELT: V-frame belt machine profile (initialized when belt_printer config is true)
+    std::unique_ptr<BeltPrinter::BeltMachineProfile> m_belt_profile;
+
     // SoftFever
-    // 
+    //
     // object id
     size_t               m_id;
     void apply_conical_overhang();

@@ -615,9 +615,9 @@ target_link_libraries(libslic3r
         boost_libs
         Boost::iostreams
         TBB::tbb
-        ${BLOSC_LIB}
         cereal::cereal
         OpenVDB::openvdb
+        ${BLOSC_LIB}
         clipper
         Clipper2
         eigen
