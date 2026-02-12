@@ -4438,6 +4438,7 @@ void TabPrinter::build_fff()
 
         optgroup = page->new_optgroup(L("Belt Printer"), "param_belt_printer");
         optgroup->append_single_option_line("printer_is_belt");
+        optgroup->append_single_option_line("belt_axis");
         optgroup->append_single_option_line("belt_angle");
         optgroup->append_single_option_line("belt_inclined_gcode");
         optgroup->append_single_option_line("belt_wall_enabled");
