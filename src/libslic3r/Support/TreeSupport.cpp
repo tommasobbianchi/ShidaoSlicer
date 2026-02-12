@@ -41,6 +41,8 @@
 #ifdef SUPPORT_TREE_DEBUG_TO_SVG
 #include "nlohmann/json.hpp"
 #endif
+
+#include "../BeltPrinter/DirectionalSupports.hpp"
 namespace Slic3r
 {
 #define unscale_(val) ((val) * SCALING_FACTOR)
@@ -628,6 +630,20 @@ TreeSupport::TreeSupport(PrintObject& object, const SlicingParameters &slicing_p
     Vec3d plate_offset       = m_object->print()->get_plate_origin();
     // align with the centered object in current plate (may not be the 1st plate, so need to add the plate offset)
     m_machine_border.translate(Point(scale_(plate_offset(0)), scale_(plate_offset(1))) - m_object->instances().front().shift);
+
+    // ORCA_BELT: Belt printers have infinite length in Yv direction
+    if (m_object->is_belt_printer() && m_object->belt_profile()->is_infinite_belt()) {
+        coord_t xv_min_s = coord_t(scale_(m_object->belt_profile()->Xv_min_mm));
+        coord_t xv_max_s = coord_t(scale_(m_object->belt_profile()->Xv_max_mm));
+        coord_t yv_ext   = coord_t(scale_(10000.0));  // 10m, effectively infinite
+        m_machine_border.contour.points = {
+            Point(xv_min_s, -yv_ext), Point(xv_max_s, -yv_ext),
+            Point(xv_max_s,  yv_ext), Point(xv_min_s,  yv_ext)
+        };
+        // Re-apply plate offset
+        m_machine_border.translate(Point(scale_(plate_offset(0)), scale_(plate_offset(1))) - m_object->instances().front().shift);
+    }
+
     top_z_distance                            = m_object_config->support_top_z_distance.value;
     if (top_z_distance > EPSILON) top_z_distance = std::max(top_z_distance, float(m_slicing_params.min_layer_height));
 #ifdef SUPPORT_TREE_DEBUG_TO_SVG
@@ -972,6 +988,18 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
     m_vertical_enforcer_points.clear();
     m_object->project_and_append_custom_facets(false, EnforcerBlockerType::ENFORCER, enforcers, &m_vertical_enforcer_points);
     m_object->project_and_append_custom_facets(false, EnforcerBlockerType::BLOCKER, blockers);
+
+    // ORCA_BELT: For belt printers, backward-facing overhangs don't need support
+    if (m_object->is_belt_printer()) {
+        auto belt_settings = BeltPrinter::DirectionalSupports::create_settings_from_profile(
+            *m_object->belt_profile(), thresh_angle);
+        auto belt_blockers = BeltPrinter::DirectionalSupports::compute_belt_overhang_blockers(
+            *m_object, belt_settings);
+        if (blockers.size() < belt_blockers.size())
+            blockers.resize(belt_blockers.size());
+        for (size_t i = 0; i < belt_blockers.size(); ++i)
+            append(blockers[i], belt_blockers[i]);
+    }
 
     if (is_auto(stype) && config_remove_small_overhangs) {
         // remove small overhangs
@@ -2065,7 +2093,13 @@ void TreeSupport::draw_circles()
                             }
                         }
                         if (obj_layer_nr == 0 && m_raft_layers == 0) {
-                            double brim_width = !config.tree_support_auto_brim ? tree_brim_width : std::max(MIN_BRANCH_RADIUS_FIRST_LAYER, std::min(node.radius + node.dist_mm_to_top / (scale * branch_radius) * 0.5, MAX_BRANCH_RADIUS_FIRST_LAYER) - node.radius);
+                            double brim_width;
+                            if (m_object->is_belt_printer()) {
+                                // ORCA_BELT: Belt printers: reduced brim, belt surface contact
+                                brim_width = std::max(MIN_BRANCH_RADIUS, node.radius * 1.5);
+                            } else {
+                                brim_width = !config.tree_support_auto_brim ? tree_brim_width : std::max(MIN_BRANCH_RADIUS_FIRST_LAYER, std::min(node.radius + node.dist_mm_to_top / (scale * branch_radius) * 0.5, MAX_BRANCH_RADIUS_FIRST_LAYER) - node.radius);
+                            }
                             auto tmp=offset(circle, scale_(brim_width));
                             if(!tmp.empty())
                                 circle = tmp[0];
@@ -2416,6 +2450,8 @@ double SupportNode::diameter_angle_scale_factor;
 
 void TreeSupport::drop_nodes()
 {
+    // ORCA_BELT: Branch angle works correctly in V-frame — "down" = decreasing Zv
+    // = toward belt surface, so standard angle has the same geometric meaning.
     const PrintObjectConfig &config = m_object->config();
     // Use Minimum Spanning Tree to connect the points on each layer and move them while dropping them down.
     const coordf_t support_extrusion_width = m_support_params.support_extrusion_width;

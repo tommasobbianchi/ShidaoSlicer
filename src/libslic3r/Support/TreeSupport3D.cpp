@@ -50,6 +50,8 @@
 #include <openvdb/tools/VolumeToSpheres.h>
 #endif // TREE_SUPPORT_ORGANIC_NUDGE_NEW
 
+#include "../BeltPrinter/DirectionalSupports.hpp"
+
 #ifndef _L
 #define _L(s) Slic3r::I18N::translate(s)
 #endif
@@ -204,6 +206,19 @@ static std::vector<std::pair<TreeSupportSettings, std::vector<size_t>>> group_me
     std::vector<Polygons>    blockers_layers{ print_object.slice_support_blockers() };
     print_object.project_and_append_custom_facets(false, EnforcerBlockerType::ENFORCER, enforcers_layers);
     print_object.project_and_append_custom_facets(false, EnforcerBlockerType::BLOCKER, blockers_layers);
+
+    // ORCA_BELT: Belt-directional blockers
+    if (print_object.is_belt_printer()) {
+        auto belt_settings = BeltPrinter::DirectionalSupports::create_settings_from_profile(
+            *print_object.belt_profile());
+        auto belt_blockers = BeltPrinter::DirectionalSupports::compute_belt_overhang_blockers(
+            print_object, belt_settings);
+        if (blockers_layers.size() < belt_blockers.size())
+            blockers_layers.resize(belt_blockers.size());
+        for (size_t i = 0; i < belt_blockers.size(); ++i)
+            append(blockers_layers[i], belt_blockers[i]);
+    }
+
     const int                support_threshold      = config.support_threshold_angle.value;
     const bool               support_threshold_auto = support_threshold == 0;
     // +1 makes the threshold inclusive
@@ -4020,7 +4035,11 @@ void generate_tree_support_3D(PrintObject &print_object, TreeSupport* tree_suppo
     Points bedpts = tree_support->m_machine_border.contour.points;
     Pointfs bedptsf;
     std::transform(bedpts.begin(), bedpts.end(), std::back_inserter(bedptsf), [](const Point &p) { return unscale(p); });
-    BuildVolume build_volume{ bedptsf, tree_support->m_print_config->printable_height, {}, {} };
+    double printable_height = tree_support->m_print_config->printable_height;
+    // ORCA_BELT: Use belt profile's Zv_max as printable height
+    if (print_object.is_belt_printer())
+        printable_height = print_object.belt_profile()->Zv_max_mm;
+    BuildVolume build_volume{ bedptsf, printable_height, {}, {} };
 
     TreeSupport3D::generate_support_areas(*print_object.print(), tree_support, build_volume, { idx }, throw_on_cancel);
 }

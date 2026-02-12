@@ -3,9 +3,13 @@
 
 #include "MachineProfile.hpp"
 #include "VirtualBeltFrame.hpp"
+#include "../Polygon.hpp"
 #include <Eigen/Dense>
 
 namespace Slic3r {
+
+class PrintObject;  // Forward declaration
+
 namespace BeltPrinter {
 
 /// Support dependency classification
@@ -124,7 +128,7 @@ public:
     
     /**
      * Create settings from machine profile
-     * 
+     *
      * @param profile Machine profile
      * @param overhang_threshold_deg Overhang angle threshold
      * @return Support settings
@@ -132,6 +136,22 @@ public:
     static DirectionalSupportSettings create_settings_from_profile(
         const BeltMachineProfile& profile,
         double overhang_threshold_deg = 45.0
+    );
+
+    /**
+     * Compute per-layer blocker polygons for backward-facing overhangs.
+     *
+     * Iterates over all model-part mesh facets, transforms them to V-frame,
+     * classifies each with classify_overhang_direction(), and projects
+     * BACKWARD triangles as blocker polygons onto the layers they span.
+     *
+     * @param object PrintObject (provides mesh, trafo, layers, belt profile)
+     * @param settings Directional support settings
+     * @return Vector of Polygons indexed by layer, for merging into blocker vectors
+     */
+    static std::vector<Polygons> compute_belt_overhang_blockers(
+        const PrintObject& object,
+        const DirectionalSupportSettings& settings
     );
 };
 

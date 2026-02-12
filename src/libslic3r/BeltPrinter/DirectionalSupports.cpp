@@ -1,4 +1,8 @@
 #include "DirectionalSupports.hpp"
+#include "../Print.hpp"
+#include "../Layer.hpp"
+#include "../Model.hpp"
+#include "../ClipperUtils.hpp"
 #include <cmath>
 
 namespace Slic3r {
@@ -135,6 +139,87 @@ DirectionalSupportSettings DirectionalSupports::create_settings_from_profile(
     settings.belt_positive_direction = profile.belt_positive_direction_in_V;
     settings.enable_directional_logic = true;
     return settings;
+}
+
+std::vector<Polygons> DirectionalSupports::compute_belt_overhang_blockers(
+    const PrintObject& object,
+    const DirectionalSupportSettings& settings)
+{
+    const auto* profile = object.belt_profile();
+    if (!profile || !settings.enable_directional_logic)
+        return {};
+
+    // Get layer count and z-heights
+    auto layers = object.layers();
+    const size_t num_layers = layers.size();
+    if (num_layers == 0)
+        return {};
+
+    std::vector<Polygons> blockers(num_layers);
+
+    // F→V transform for this object
+    Eigen::Affine3d F_to_V = profile->get_F_to_V_transform();
+
+    const ModelObject* model_obj = object.model_object();
+    if (!model_obj)
+        return blockers;
+
+    for (const ModelVolume* mv : model_obj->volumes) {
+        if (!mv->is_model_part())
+            continue;
+
+        // Combined transform: F→V * object_trafo * volume_matrix
+        Eigen::Affine3d combined = F_to_V * object.trafo() * mv->get_matrix();
+        const indexed_triangle_set& its = mv->mesh().its;
+
+        for (size_t fi = 0; fi < its.indices.size(); ++fi) {
+            const auto& face = its.indices[fi];
+
+            // Transform vertices to V-frame
+            Eigen::Vector3d v0 = combined * its.vertices[face[0]].cast<double>();
+            Eigen::Vector3d v1 = combined * its.vertices[face[1]].cast<double>();
+            Eigen::Vector3d v2 = combined * its.vertices[face[2]].cast<double>();
+
+            // Compute facet normal in V-frame
+            Eigen::Vector3d normal = (v1 - v0).cross(v2 - v0);
+            double len = normal.norm();
+            if (len < 1e-12)
+                continue;
+            normal /= len;
+
+            // Classify: only interested in BACKWARD facets
+            VectorV normal_V(normal.x(), normal.y(), normal.z());
+            FacetClassification cls = classify_overhang_direction(normal_V, settings);
+            if (cls.dependency != SupportDependency::BACKWARD)
+                continue;
+
+            // Project triangle XY outline as blocker polygon
+            double z_min = std::min({v0.z(), v1.z(), v2.z()});
+            double z_max = std::max({v0.z(), v1.z(), v2.z()});
+
+            // Build a scaled polygon from the 3 XY-projected vertices
+            Polygon tri_poly;
+            tri_poly.points.reserve(3);
+            tri_poly.points.emplace_back(coord_t(scale_(v0.x())), coord_t(scale_(v0.y())));
+            tri_poly.points.emplace_back(coord_t(scale_(v1.x())), coord_t(scale_(v1.y())));
+            tri_poly.points.emplace_back(coord_t(scale_(v2.x())), coord_t(scale_(v2.y())));
+
+            // Add this triangle's projection to every layer it spans
+            for (size_t li = 0; li < num_layers; ++li) {
+                double layer_z = layers[li]->slice_z;
+                if (layer_z >= z_min - EPSILON && layer_z <= z_max + EPSILON)
+                    blockers[li].emplace_back(tri_poly);
+            }
+        }
+    }
+
+    // Union blocker polygons per layer for cleaner geometry
+    for (size_t li = 0; li < num_layers; ++li) {
+        if (!blockers[li].empty())
+            blockers[li] = union_(blockers[li]);
+    }
+
+    return blockers;
 }
 
 } // namespace BeltPrinter
