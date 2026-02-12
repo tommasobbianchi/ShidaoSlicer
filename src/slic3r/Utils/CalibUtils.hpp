@@ -88,6 +88,7 @@ private:
     static bool process_and_store_3mf(Model* model, const DynamicPrintConfig& full_config, const Calib_Params& params, wxString& error_message);
     static void send_to_print(const CalibInfo &calib_info, wxString& error_message, int flow_ratio_mode = 0); // 0: none  1: coarse  2: fine
     static void send_to_print(const std::vector<CalibInfo> &calib_infos, wxString &error_message, int flow_ratio_mode = 0); // 0: none  1: coarse  2: fine
+    static void add_belt_wedge(Model& model, const DynamicPrintConfig& printer_config);
 };
 
 extern void get_tray_ams_and_slot_id(MachineObject* obj, int in_tray_id, int &ams_id, int &slot_id, int &tray_id);

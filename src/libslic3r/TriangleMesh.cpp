@@ -914,7 +914,46 @@ indexed_triangle_set its_make_prism(float width, float length, float height)
     };
 }
 
-// Generate the mesh for a cylinder and return it, using 
+// Generate a belt-printer calibration wedge: right trapezoid extruded in X.
+// Side view (Y-Z): ramp from (0,0) to (ramp_length,height), then flat platform to (total_depth,height).
+indexed_triangle_set its_make_belt_wedge(float width, float platform_depth, float height, float ramp_length)
+{
+    float hw = width / 2.f;
+    float td = ramp_length + platform_depth; // total depth
+
+    // 8 vertices: 4 on left (X=-hw), 4 on right (X=+hw)
+    // Ordered: front-bottom, back-bottom, back-top, ramp-top
+    return {
+        {
+            // Bottom (normal -Z)
+            {0, 1, 5}, {0, 5, 4},
+            // Top platform (normal +Z)
+            {3, 7, 6}, {3, 6, 2},
+            // Back (normal +Y)
+            {1, 2, 6}, {1, 6, 5},
+            // Ramp (normal outward)
+            {0, 4, 7}, {0, 7, 3},
+            // Left end cap (normal -X)
+            {0, 3, 2}, {0, 2, 1},
+            // Right end cap (normal +X)
+            {4, 5, 6}, {4, 6, 7},
+        },
+        {
+            // Left side (X = -hw)
+            {-hw, 0.f,  0.f},              // v0: front bottom
+            {-hw, td,   0.f},              // v1: back bottom
+            {-hw, td,   height},           // v2: back top
+            {-hw, ramp_length, height},    // v3: ramp top
+            // Right side (X = +hw)
+            { hw, 0.f,  0.f},              // v4: front bottom
+            { hw, td,   0.f},              // v5: back bottom
+            { hw, td,   height},           // v6: back top
+            { hw, ramp_length, height},    // v7: ramp top
+        }
+    };
+}
+
+// Generate the mesh for a cylinder and return it, using
 // the generated angle to calculate the top mesh triangles.
 // Default is 360 sides, angle fa is in radians.
 indexed_triangle_set its_make_cylinder(double r, double h, double fa)

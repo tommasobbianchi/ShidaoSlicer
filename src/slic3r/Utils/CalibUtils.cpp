@@ -9,6 +9,7 @@
 #include "libslic3r/ClipperUtils.hpp"
 
 #include "libslic3r/Model.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 #include "slic3r/GUI/Jobs/BoostThreadWorker.hpp"
 #include "slic3r/GUI/Jobs/PlaterWorker.hpp"
 #include "../GUI/MsgDialog.hpp"
@@ -1067,6 +1068,52 @@ bool CalibUtils::calib_generic_PA(const CalibInfo &calib_info, wxString &error_m
     return true;
 }
 
+void CalibUtils::add_belt_wedge(Model& model, const DynamicPrintConfig& printer_config)
+{
+    auto* belt_opt = printer_config.option<ConfigOptionBool>("printer_is_belt");
+    if (!belt_opt || !belt_opt->value)
+        return;
+
+    if (model.objects.empty() || model.objects[0]->volumes.empty())
+        return;
+
+    double belt_angle_deg = 45.0;
+    auto* angle_opt = printer_config.option<ConfigOptionFloat>("belt_angle");
+    if (angle_opt && angle_opt->value > 0)
+        belt_angle_deg = angle_opt->value;
+
+    const double wedge_height = 5.0; // mm
+    const double ramp_angle_rad = belt_angle_deg * M_PI / 180.0;
+    const double ramp_length = wedge_height / std::tan(ramp_angle_rad);
+
+    auto* obj = model.objects[0];
+    auto obj_bb = obj->bounding_box_exact();
+
+    float wedge_width    = (float)(obj_bb.size().x() + 10.0);  // 5mm margin each side
+    float platform_depth = (float)(obj_bb.size().y() + 6.0);   // 3mm margin each side
+
+    TriangleMesh wedge_mesh(its_make_belt_wedge(
+        wedge_width, platform_depth, (float)wedge_height, (float)ramp_length));
+
+    // Shift existing tower volume(s) up by wedge height
+    for (auto* vol : obj->volumes) {
+        if (vol->is_model_part())
+            vol->set_offset(vol->get_offset() + Vec3d(0, 0, wedge_height));
+    }
+
+    auto* wedge_vol = obj->add_volume(std::move(wedge_mesh), ModelVolumeType::MODEL_PART, false);
+    wedge_vol->name = "Belt Calibration Wedge";
+
+    double tower_cx    = obj_bb.center().x();
+    double tower_min_y = obj_bb.min.y();
+    wedge_vol->set_offset(Vec3d(
+        tower_cx - wedge_width / 2.0,
+        tower_min_y - ramp_length - 3.0,
+        0.0));
+
+    obj->ensure_on_bed();
+}
+
 void CalibUtils::calib_temptue(const CalibInfo &calib_info, wxString &error_message)
 {
     const Calib_Params &params = calib_info.params;
@@ -1097,6 +1144,9 @@ void CalibUtils::calib_temptue(const CalibInfo &calib_info, wxString &error_mess
             cut_model(model, new_height, ModelObjectCutAttribute::KeepUpper);
         }
     }
+
+    // Belt printer: add wedge base
+    add_belt_wedge(model, calib_info.printer_prest->config);
 
     // edit preset
     DynamicPrintConfig print_config    = calib_info.print_prest->config;
@@ -1186,6 +1236,9 @@ void CalibUtils::calib_max_vol_speed(const CalibInfo &calib_info, wxString &erro
         cut_model(model, height, ModelObjectCutAttribute::KeepLower);
     }
 
+    // Belt printer: add wedge base
+    add_belt_wedge(model, calib_info.printer_prest->config);
+
     auto new_params  = params;
     auto mm3_per_mm  = Flow(line_width, layer_height, nozzle_diameter).mm3_per_mm() * filament_config.option<ConfigOptionFloatsNullable>("filament_flow_ratio")->get_at(0);
     new_params.end   = params.end / mm3_per_mm;
@@ -1251,6 +1304,9 @@ void CalibUtils::calib_VFA(const CalibInfo &calib_info, wxString &error_message)
         return;
     }
 
+    // Belt printer: add wedge base
+    add_belt_wedge(model, calib_info.printer_prest->config);
+
     DynamicPrintConfig full_config;
     full_config.apply(FullPrintConfig::defaults());
     full_config.apply(print_config);
@@ -1303,6 +1359,9 @@ void CalibUtils::calib_retraction(const CalibInfo &calib_info, wxString &error_m
     if (height < obj_bb.size().z()) {
         cut_model(model, height, ModelObjectCutAttribute::KeepLower);
     }
+
+    // Belt printer: add wedge base
+    add_belt_wedge(model, calib_info.printer_prest->config);
 
     DynamicPrintConfig full_config;
     full_config.apply(FullPrintConfig::defaults());

@@ -341,6 +341,7 @@ indexed_triangle_set    its_make_frustum(double r, double h, double fa=(2*PI/180
 indexed_triangle_set    its_make_torus(double r, double h, double fa);
 indexed_triangle_set    its_make_frustum_dowel(double r, double h, int sectorCount);
 indexed_triangle_set    its_make_pyramid(float base, float height);
+indexed_triangle_set    its_make_belt_wedge(float width, float platform_depth, float height, float ramp_length);
 indexed_triangle_set    its_make_sphere(double radius, double fa);
 indexed_triangle_set    its_make_snap(double r, double h, float space_proportion = 0.25f, float bulge_proportion = 0.125f);
 indexed_triangle_set    its_make_groove_plane(const Groove &cur_groove, float rotate_radius, std::vector<Vec3d> &cur_groove_vertices);
@@ -353,6 +354,7 @@ inline TriangleMesh     make_prism(float width, float length, float height)     
 inline TriangleMesh     make_cylinder(double r, double h, double fa=(2*PI/180)) { return TriangleMesh{its_make_cylinder(r, h, fa)}; }
 inline TriangleMesh     make_cone(double r, double h, double fa=(2*PI/180))     { return TriangleMesh(its_make_cone(r, h, fa)); }
 inline TriangleMesh     make_pyramid(float base, float height)                  { return TriangleMesh(its_make_pyramid(base, height)); }
+inline TriangleMesh     make_belt_wedge(float w, float pd, float h, float rl)  { return TriangleMesh(its_make_belt_wedge(w, pd, h, rl)); }
 inline TriangleMesh     make_sphere(double rho, double fa=(2*PI/90))            { return TriangleMesh(its_make_sphere(rho, fa)); }
 inline TriangleMesh     make_torus(double r, double h, double fa=(PI/60))       { return TriangleMesh(its_make_torus(r, h, fa)); }
 
