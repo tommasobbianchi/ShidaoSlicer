@@ -22,19 +22,26 @@ struct BeltConfig {
     // With compute_belt_inclined_z (Z_input = m_nominal_z + Y_gcode):
     //   Y_mach = (i_yy+i_yz)*Y_gcode + i_yz*m_nominal_z + y_mach_offset
     //   Z_mach = (i_zy+i_zz)*Y_gcode + i_zz*m_nominal_z + z_mach_offset
-    // i_yy+i_yz=0 keeps Y_mach constant per layer.
-    // i_yz=√2 gives ΔY_mach = √2 × Δlayer = 0.283mm per 0.2mm layer (45° gantry scaling).
-    double i_yy = -1.41421356; // -√2
-    double i_yz =  1.41421356; //  √2
-    double i_zy =  1.0;
-    double i_zz =  0.0;
+    //
+    // For belt printers with shear-based slicing (Z_virt = Y + Z):
+    //   Y_mach = gantry height ∝ Y_gcode (= Z_model in sheared space)
+    //   Z_mach = belt position ∝ m_nominal_z (layer's Z_virt)
+    //
+    // i_yy+i_yz = √2 → Y_mach varies within layer (gantry traces cross-section)
+    // i_yz = 0 → Y_mach independent of layer number (stays near belt surface)
+    // i_zy+i_zz = 0 → Z_mach constant within layer (belt stationary during layer)
+    // i_zz = 1 → Z_mach = m_nominal_z (belt advances with each layer)
+    double i_yy =  1.41421356; //  √2: Y_mach = √2 × Y_gcode (gantry ∝ belt-normal coord)
+    double i_yz =  0.0;        //  0: Y_mach independent of m_nominal_z
+    double i_zy = -1.0;        // -1: cancels Y_gcode in Z_mach (belt constant per layer)
+    double i_zz =  1.0;        //  1: Z_mach = m_nominal_z (belt position = layer Z_virt)
 
     double f_y_shift = 0.0;
     double i_y_shift = 0.0;
     double f_z_shift = 0.0;
     double i_z_shift = 0.0;
-    double z_mach_offset = 0.15;    // Z offset: shifts Z_mach (belt position) start
-    double y_mach_offset = 0.0;     // Y offset: 0 → first layer at Y=0.283 (correct belt-normal)
+    double z_mach_offset = 0.0;     // Z offset: 0 → Z_mach = m_nominal_z directly (first extrusion at Z=0.400)
+    double y_mach_offset = 0.0;     // Y offset: 0 → Y_mach = √2 × Y_gcode (first layer Y≈0 to 0.283)
     double trafo_z_shift = 0.0;     // Z-shift in trafo_centered(): 0 when objects arranged near Y=0
 
     bool loaded = false;

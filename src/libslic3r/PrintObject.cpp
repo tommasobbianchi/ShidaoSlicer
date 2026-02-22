@@ -3396,14 +3396,11 @@ void PrintObject::update_slicing_parameters()
     if (!m_slicing_params.valid) {
         float max_z = 0;
 
-        if (this->is_belt_printer()) {
-            // ORCA_BELT: V-frame slicing parameters
-            double min_Zv, max_Zv, min_Yv;
-            get_belt_slicing_params_v_frame(*this, min_Zv, max_Zv, min_Yv);
-            max_z = float(max_Zv - min_Zv);
-        } else {
+        {
             max_z = this->model_object()->max_z();
-            // Legacy belt path
+            // ORCA_BELT: For belt printers, compute Z extent from the shear-transformed bbox.
+            // trafo_centered() includes the 45° forward shear: Z_virt = Y_mach + Z_mach,
+            // which expands the Z range to cover all oblique slicing planes.
             BeltSlicingParams belt_params = this->get_belt_slicing_params();
             if (belt_params.angle != 0.0) {
                 BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
