@@ -7037,13 +7037,24 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
         if (false/*m_spiral_vase*/) {
             // No lazy z lift for spiral vase mode
             for (size_t i = 1; i < travel.size(); ++i) {
-                gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
+                // ORCA_BELT: Belt travel needs XYZ with inclined Z (same as extrusion moves)
+                if (m_belt_inclined_gcode) {
+                    Vec2d dest2d = this->point_to_gcode(travel.points[i]);
+                    double inclined_z = compute_belt_inclined_z(dest2d, m_nominal_z);
+                    gcode += m_writer.travel_to_xyz(Vec3d(dest2d.x(), dest2d.y(), inclined_z), comment);
+                } else {
+                    gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
+                }
             }
         } else {
             if (travel.size() == 2) {
                 // No extra movements emitted by avoid_crossing_perimeters, simply move to the end point with z change
                 const auto& dest2d = this->point_to_gcode(travel.points.back());
-                Vec3d dest3d(dest2d(0), dest2d(1), z == DBL_MAX ? m_nominal_z : z);
+                double base_z = z == DBL_MAX ? m_nominal_z : z;
+                // ORCA_BELT: Apply inclined Z so inverse transform produces correct Y_mach
+                if (m_belt_inclined_gcode)
+                    base_z = compute_belt_inclined_z(dest2d, base_z);
+                Vec3d dest3d(dest2d(0), dest2d(1), base_z);
                 gcode += m_writer.travel_to_xyz(dest3d, comment, m_need_change_layer_lift_z);
                 m_need_change_layer_lift_z = false;
             } else {
@@ -7053,17 +7064,32 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
                     if (i == 1) {
                         // Lift to normal z at beginning
                         Vec2d dest2d = this->point_to_gcode(travel.points[i]);
-                        Vec3d dest3d(dest2d(0), dest2d(1), m_nominal_z);
+                        // ORCA_BELT: Apply inclined Z for belt travel
+                        double travel_z = m_belt_inclined_gcode
+                            ? compute_belt_inclined_z(dest2d, m_nominal_z)
+                            : m_nominal_z;
+                        Vec3d dest3d(dest2d(0), dest2d(1), travel_z);
                         gcode += m_writer.travel_to_xyz(dest3d, comment, m_need_change_layer_lift_z);
                         m_need_change_layer_lift_z = false;
                     } else if (z != DBL_MAX && i == travel.size() - 1) {
                         // Apply z_ratio for the very last point
                         Vec2d dest2d = this->point_to_gcode(travel.points[i]);
-                        Vec3d dest3d(dest2d(0), dest2d(1), z);
+                        // ORCA_BELT: Apply inclined Z for belt travel
+                        double travel_z = m_belt_inclined_gcode
+                            ? compute_belt_inclined_z(dest2d, z)
+                            : z;
+                        Vec3d dest3d(dest2d(0), dest2d(1), travel_z);
                         gcode += m_writer.travel_to_xyz(dest3d, comment);
                     } else {
                         // For all points in between, no z change
-                        gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
+                        // ORCA_BELT: Belt travel needs XYZ with inclined Z
+                        if (m_belt_inclined_gcode) {
+                            Vec2d dest2d = this->point_to_gcode(travel.points[i]);
+                            double inclined_z = compute_belt_inclined_z(dest2d, m_nominal_z);
+                            gcode += m_writer.travel_to_xyz(Vec3d(dest2d.x(), dest2d.y(), inclined_z), comment);
+                        } else {
+                            gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
+                        }
                     }
                 }
             }
