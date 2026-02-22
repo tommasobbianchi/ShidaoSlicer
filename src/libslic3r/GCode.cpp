@@ -7711,8 +7711,9 @@ Vec2d GCode::point_to_gcode(const Point &point) const
     // via inverse_transform_point. The Y must be relative to the object geometry,
     // not offset by the arrangement position on the bed. The arrangement Y offset
     // would otherwise shift Z_mach by hundreds of mm (object placed at bed Y=14+).
-    if (m_belt_inclined_gcode)
+    if (m_belt_inclined_gcode) {
         origin.y() = 0;
+    }
     return unscale(point) + origin - extruder_offset;
 }
 

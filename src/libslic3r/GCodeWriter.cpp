@@ -50,8 +50,10 @@ void GCodeWriter::apply_print_config(const PrintConfig &print_config)
     m_max_jerk_z = print_config.machine_max_jerk_z.values.front();
     m_max_jerk_e = print_config.machine_max_jerk_e.values.front();
 
-    // Belt Setup
-    m_is_belt = print_config.printer_is_belt.value || (print_config.printer_structure.value == PrinterStructure::psBelt);
+    // Belt Setup — match get_belt_slicing_params() detection: OR of all belt flags
+    m_is_belt = print_config.printer_is_belt.value ||
+                (print_config.printer_structure.value == PrinterStructure::psBelt) ||
+                print_config.belt_inclined_gcode.value;
     m_belt_angle = print_config.belt_angle.value;
 }
 

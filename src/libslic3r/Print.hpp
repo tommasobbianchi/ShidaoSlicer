@@ -351,12 +351,18 @@ public:
             Transform3d belt_forward = BeltTransform::make_forward_transform(Geometry::rad2deg(belt_params.angle));
             t = belt_forward * t;
 
-            // 3. Shift Z_virt down to bring object to bed level (compensate for belt center Y=1000mm)
-            // After belt transform: Z_virt = Y_mach + Z_mach
-            // Objects at Y_mach=1000 become Z_virt=1000, shift down
-            // Value loaded from belt_transform.ini for hot-reload tuning
+            // 3. Shift Z_virt down to bring object to bed level
             double z_shift = BeltTransform::get_trafo_z_shift();
             t.translate(Vec3d(0, 0, z_shift));
+
+            // 4. Shift Y_virt so object starts at Y=0 (belt surface)
+            // On belt printers Y_gcode maps to gantry height via inverse transform.
+            // Y_gcode=0 → Y_mach=0 → nozzle on belt surface. Without this shift,
+            // the object floats at Y_mach = √2 × Y_virt_offset (hundreds of mm).
+            if (m_model_object) {
+                BoundingBoxf3 virtual_bbox = m_model_object->raw_mesh_bounding_box().transformed(t);
+                t.pretranslate(Vec3d(0, -virtual_bbox.min.y(), 0));
+            }
         } else {
             // Standard printer: apply full centering offset
             t.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), - unscale<double>(m_center_offset.y()), 0));
