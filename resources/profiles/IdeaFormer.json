@@ -25,6 +25,10 @@
         {
             "name": "Generic PLA @IdeaFormer",
             "sub_path": "filament/Generic PLA @IdeaFormer.json"
+        },
+        {
+            "name": "Generic PETG @IdeaFormer",
+            "sub_path": "filament/Generic PETG @IdeaFormer.json"
         }
     ]
 }
