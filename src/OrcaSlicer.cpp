@@ -6070,8 +6070,15 @@ int CLI::run(int argc, char **argv)
                                                 else {
                                                     BOOST_LOG_TRIVIAL(warning) << boost::format("plate %1%: found slicing warnings: %2%, no_check=%3%")%(index+1) %status.text %no_check;
                                                     if (!no_check) {
+                                                        // Belt printers: empty initial layers are expected with oblique slicing —
+                                                        // treat SlicingEmptyGcodeLayers as non-critical instead of fatal.
+                                                        bool is_belt = new_print_config.opt_bool("belt_inclined_gcode");
+                                                        bool skip_empty_layer_error = is_belt && status.message_type == PrintStateBase::SlicingEmptyGcodeLayers;
+                                                        if (skip_empty_layer_error) {
+                                                            BOOST_LOG_TRIVIAL(info) << "Belt printer: ignoring empty layer warning (expected with oblique slicing)";
+                                                        }
                                                         //only following message will be reported under import mode
-                                                        if (status.message_type == PrintStateBase::SlicingEmptyGcodeLayers
+                                                        else if (status.message_type == PrintStateBase::SlicingEmptyGcodeLayers
                                                             || status.message_type == PrintStateBase::SlicingGcodeOverlap)
                                                         {
                                                             sliced_info.sliced_plates.push_back(sliced_plate_info);

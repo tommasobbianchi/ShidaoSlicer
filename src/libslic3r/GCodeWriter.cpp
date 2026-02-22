@@ -701,7 +701,9 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
             // ORCA_BELT: Legacy code removed
             // if (m_belt_profile) w0.set_z_offset(m_y_offset);
 
-            if (this->is_current_position_clear()) {
+            if (this->is_current_position_clear() || m_is_belt) {
+                // ORCA_BELT: Belt printers always emit XYZ (Y and Z are coupled
+                // through the inverse transform — splitting XY+Z produces wrong Y).
                 w0.emit_xyz(target);
                 w0.emit_f(travel_speed * 60.0);
                 w0.emit_comment(GCodeWriter::full_gcode_comment, comment);
@@ -740,7 +742,7 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
     std::string out_string;
     GCodeG1Formatter w(m_is_belt, m_belt_angle);
     // if (m_belt_profile) w.set_z_offset(m_y_offset);
-    if (!this->is_current_position_clear())
+    if (!this->is_current_position_clear() && !m_is_belt)
     {
         //force to move xy first then z after filament change
         w.emit_xy(Vec2d(point_on_plate.x(), point_on_plate.y()));
@@ -748,6 +750,7 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         w.emit_comment(GCodeWriter::full_gcode_comment, comment);
         out_string = w.string() + _travel_to_z(point_on_plate.z(), comment);
     } else {
+        // ORCA_BELT: Belt printers always emit XYZ together.
         GCodeG1Formatter w(m_is_belt, m_belt_angle);
         // if (m_belt_profile) w.set_z_offset(m_y_offset);
         w.emit_xyz(point_on_plate);

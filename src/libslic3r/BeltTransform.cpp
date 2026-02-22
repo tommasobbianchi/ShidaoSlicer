@@ -19,22 +19,13 @@ struct BeltConfig {
     double f_zz = 1.0;
 
     // Inverse transform: Virtual → Machine (for G-code output)
-    // With compute_belt_inclined_z (Z_input = m_nominal_z + Y_gcode):
-    //   Y_mach = (i_yy+i_yz)*Y_gcode + i_yz*m_nominal_z + y_mach_offset
-    //   Z_mach = (i_zy+i_zz)*Y_gcode + i_zz*m_nominal_z + z_mach_offset
-    //
-    // For belt printers with shear-based slicing (Z_virt = Y + Z):
-    //   Y_mach = gantry height ∝ Y_gcode (= Z_model in sheared space)
-    //   Z_mach = belt position ∝ m_nominal_z (layer's Z_virt)
-    //
-    // i_yy+i_yz = √2 → Y_mach varies within layer (gantry traces cross-section)
-    // i_yz = 0 → Y_mach independent of layer number (stays near belt surface)
-    // i_zy+i_zz = 0 → Z_mach constant within layer (belt stationary during layer)
-    // i_zz = 1 → Z_mach = m_nominal_z (belt advances with each layer)
-    double i_yy =  1.41421356; //  √2: Y_mach = √2 × Y_gcode (gantry ∝ belt-normal coord)
-    double i_yz =  0.0;        //  0: Y_mach independent of m_nominal_z
-    double i_zy = -1.0;        // -1: cancels Y_gcode in Z_mach (belt constant per layer)
-    double i_zz =  1.0;        //  1: Z_mach = m_nominal_z (belt position = layer Z_virt)
+    // With compute_belt_inclined_z (Z_input = m_nominal_z + Y_gcode * tan(45°)):
+    //   Y_mach = √2 * Y_gcode                  (gantry traces cross-section, varies within layer)
+    //   Z_mach = -Y_gcode + Z_gcode = m_nominal_z  (belt position, constant per layer)
+    double i_yy =  1.41421356; // √2: Y_mach = √2 × Y_gcode (gantry traces cross-section)
+    double i_yz =  0.0;        //  0: Y_mach independent of layer height
+    double i_zy = -1.0;        // -1: Z_mach = -Y_gcode + Z_gcode = m_nominal_z
+    double i_zz =  1.0;        //  1: Z_mach = m_nominal_z (belt advances with each layer)
 
     double f_y_shift = 0.0;
     double i_y_shift = 0.0;
@@ -144,6 +135,12 @@ Vec3d BeltTransform::inverse_transform_point(const Vec3d& pt, double angle_degre
     // Then apply inverse linear transform
     double y_mach = g_belt_config.i_yy * y_virt + g_belt_config.i_yz * z_virt + g_belt_config.y_mach_offset;
     double z_mach = g_belt_config.i_zy * y_virt + g_belt_config.i_zz * z_virt + g_belt_config.z_mach_offset;
+
+    // ORCA_BELT: Clamp Y_mach >= 0 — gantry cannot go below belt surface.
+    // Support material or objects with negative Y_gcode would produce negative Y_mach,
+    // which is physically impossible on belt printers.
+    if (y_mach < 0.0)
+        y_mach = 0.0;
 
     return Vec3d(pt.x(), y_mach, z_mach);
 }

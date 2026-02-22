@@ -560,6 +560,12 @@ bool Print::has_infinite_skirt() const
 
 bool Print::has_skirt() const
 {
+    // ORCA_BELT: Belt printers don't use skirt — belt surface provides adhesion,
+    // and skirt coordinates would be in bed-absolute space (wrong for belt mode).
+    if (m_config.printer_is_belt.value ||
+        m_config.printer_structure.value == PrinterStructure::psBelt ||
+        m_config.belt_inclined_gcode.value)
+        return false;
     return (m_config.skirt_height > 0);
 }
 

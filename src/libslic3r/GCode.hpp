@@ -640,6 +640,7 @@ private:
     // Belt inclined slicing
     bool m_belt_inclined_gcode = false;
     double m_belt_angle_radians = 0.0;
+    double m_belt_z_base = 0.0;  // Virtual Z offset of first layer — subtracted so Y_mach starts at 0
 
     std::set<unsigned int>                  m_initial_layer_extruders;
     std::vector<std::vector<unsigned int>>  m_sorted_layer_filaments;
