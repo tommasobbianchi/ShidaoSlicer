@@ -6624,7 +6624,15 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
                     if (line_length < EPSILON)
                         continue;
                     path_length += line_length;
-                    auto dE = e_per_mm * line_length;
+                    // Belt shear flow correction: machine Y path = Y_virt/cos(belt_angle)
+                    // Without this, pure Y moves are under-extruded by ~29% (1-cos(45°))
+                    double extrusion_length = line_length;
+                    if (m_belt_inclined_gcode) {
+                        Vec2d delta = (line.b - line.a).cast<double>() * SCALING_FACTOR;
+                        double y_scale = 1.0 / std::cos(m_belt_angle_radians);
+                        extrusion_length = std::sqrt(delta.x() * delta.x() + y_scale * y_scale * delta.y() * delta.y());
+                    }
+                    auto dE = e_per_mm * extrusion_length;
                     if (_needSAFC(path)) {
                         auto oldE = dE;
                         dE = m_small_area_infill_flow_compensator->modify_flow(line_length, dE, path.role());
@@ -6831,7 +6839,14 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
                 gcode += m_writer.set_speed(F, "", comment);
                 last_set_speed = F;
             }
-            auto dE = e_per_mm * line_length;
+            // Belt shear flow correction (variable-speed path)
+            double extrusion_length = line_length;
+            if (m_belt_inclined_gcode) {
+                Vec2d delta = p - prev;
+                double y_scale = 1.0 / std::cos(m_belt_angle_radians);
+                extrusion_length = std::sqrt(delta.x() * delta.x() + y_scale * y_scale * delta.y() * delta.y());
+            }
+            auto dE = e_per_mm * extrusion_length;
             if (_needSAFC(path)) {
                 auto oldE = dE;
                 dE = m_small_area_infill_flow_compensator->modify_flow(line_length, dE, path.role());
