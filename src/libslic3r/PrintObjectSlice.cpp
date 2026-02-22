@@ -1157,10 +1157,18 @@ void PrintObject::slice_volumes()
         // ORCA_BELT: Apply F->V transform for planar slicing in V-frame
         if (this->is_belt_printer()) {
             const auto& profile = *this->belt_profile();
-            // Transform mesh coordinates from firmware frame to V-frame
-            // After this, standard XY-plane slicing at fixed Zv works correctly
-            Eigen::Affine3d F_to_V = profile.get_F_to_V_transform();
-            slice_trafo = F_to_V * slice_trafo;
+            // V-frame slicing: use F_to_V * trafo() (NOT trafo_centered which
+            // includes the old BeltTransform forward + z_shift meant for G-code,
+            // not for slicing coordinate transforms).
+            slice_trafo = Transform3d(profile.get_F_to_V_transform()) * this->trafo();
+            // Center X only (belt Y position preserved)
+            slice_trafo.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), 0, 0));
+            // Shift Z so that min_Zv maps to Z=0 (object sits on bed)
+            double min_Zv, max_Zv, min_Yv;
+            get_belt_slicing_params_v_frame(*this, min_Zv, max_Zv, min_Yv);
+            slice_trafo = Eigen::Translation3d(0, 0, -min_Zv) * slice_trafo;
+
+            BOOST_LOG_TRIVIAL(debug) << "Belt V-frame slicing: Zv=[" << min_Zv << "," << max_Zv << "]";
         } else {
             // Legacy belt path: adjust Z min for non-V-frame belt printers
             BeltSlicingParams belt_params = this->get_belt_slicing_params();
