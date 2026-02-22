@@ -2342,6 +2342,23 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     m_config.apply(print.default_object_config());
     m_config.apply(print.default_region_config());
 
+    // ORCA_BELT: Precompute the virtual Z base offset for belt printers.
+    // The first non-empty object layer has a large virtual Z (due to the belt forward
+    // transform shear). Subtract this base so that Y_mach starts at 0 for the first
+    // object layer, matching the prime line position at the belt surface after G28 Y.
+    m_belt_z_base = 0.0;
+    if (m_belt_inclined_gcode) {
+        for (const PrintObject* obj : print.objects()) {
+            for (const Layer* layer : obj->layers()) {
+                if (!layer->empty()) {
+                    m_belt_z_base = layer->print_z;
+                    break;
+                }
+            }
+            if (m_belt_z_base > 0.0) break;
+        }
+    }
+
     //m_volumetric_speed = DoExport::autospeed_volumetric_limit(print);
     print.throw_if_canceled();
 
@@ -5402,6 +5419,13 @@ std::string GCode::change_layer(coordf_t print_z)
 
     m_need_change_layer_lift_z = true;
 
+    // ORCA_BELT: Subtract the virtual Z base so that m_nominal_z represents the
+    // physical belt-normal layer height rather than the virtual Z coordinate.
+    // This makes Y_mach = 0 for the first object layer (matching the prime line).
+    // Clamp to 0 for pre-object empty layers (which would otherwise go negative).
+    if (m_belt_inclined_gcode && m_belt_z_base > 0.0)
+        z = std::max(0.0, z - m_belt_z_base);
+
     m_nominal_z = z;
     m_writer.get_position().z() = z;
 
@@ -5456,7 +5480,16 @@ std::string GCode::extrude_loop(ExtrusionLoop loop, std::string description, dou
     // or, if `start_point` is specified, start the loop at point closest to it
     Point last_pos = start_point ? *start_point : this->last_pos();
     float seam_overhang = std::numeric_limits<float>::lowest();
-    if (!m_config.spiral_mode && description == "perimeter") {
+    if (m_belt_inclined_gcode && !m_config.spiral_mode) {
+        // Belt printer: start loops at minimum Y (= minimum Z_mach / belt position)
+        // This ensures the belt starts at the front and advances forward
+        Polygon poly = loop.polygon();
+        Point min_y_pt = poly.points[0];
+        for (const Point &p : poly.points)
+            if (p.y() < min_y_pt.y())
+                min_y_pt = p;
+        loop.split_at(min_y_pt, false);
+    } else if (!m_config.spiral_mode && description == "perimeter") {
         assert(m_layer != nullptr);
         m_seam_placer.place_seam(m_layer, loop, last_pos, seam_overhang);
     } else
@@ -5795,6 +5828,16 @@ std::string GCode::extrude_path(ExtrusionPath path, std::string description, dou
     return gcode;
 }
 
+// Belt printer: sort extrusion entities by minimum Y coordinate (= Z_mach direction).
+// This ensures entities are printed front-to-back, minimizing belt reversals.
+static void sort_entities_for_belt_z(ExtrusionEntitiesPtr &entities)
+{
+    std::sort(entities.begin(), entities.end(),
+        [](const ExtrusionEntity *a, const ExtrusionEntity *b) {
+            return a->first_point().y() < b->first_point().y();
+        });
+}
+
 // Extrude perimeters: Decide where to put seams (hide or align seams).
 std::string GCode::extrude_perimeters(const Print &print, const std::vector<ObjectByExtruder::Island::Region> &by_region, bool is_first_layer, bool is_infill_first)
 {
@@ -5808,8 +5851,16 @@ std::string GCode::extrude_perimeters(const Print &print, const std::vector<Obje
                 : (m_config.is_infill_first == is_infill_first);
             if (!should_print) continue;
 
-            for (const ExtrusionEntity* ee : region.perimeters)
-                gcode += this->extrude_entity(*ee, "perimeter", -1., region.perimeters);
+            if (m_belt_inclined_gcode) {
+                // Belt: sort perimeters front-to-back (by min Y = min Z_mach)
+                ExtrusionEntitiesPtr sorted(region.perimeters.begin(), region.perimeters.end());
+                sort_entities_for_belt_z(sorted);
+                for (const ExtrusionEntity* ee : sorted)
+                    gcode += this->extrude_entity(*ee, "perimeter", -1., region.perimeters);
+            } else {
+                for (const ExtrusionEntity* ee : region.perimeters)
+                    gcode += this->extrude_entity(*ee, "perimeter", -1., region.perimeters);
+            }
         }
     return gcode;
 }
@@ -5830,6 +5881,8 @@ std::string GCode::extrude_infill(const Print &print, const std::vector<ObjectBy
             if (! extrusions.empty()) {
                 m_config.apply(print.get_print_region(&region - &by_region.front()).config());
                 chain_and_reorder_extrusion_entities(extrusions, &m_last_pos);
+                if (m_belt_inclined_gcode)
+                    sort_entities_for_belt_z(extrusions);
                 for (const ExtrusionEntity *fill : extrusions) {
                     auto *eec = dynamic_cast<const ExtrusionEntityCollection*>(fill);
                     if (eec) {
@@ -5865,6 +5918,8 @@ std::string GCode::extrude_support(const ExtrusionEntityCollection &support_fill
             return gcode;
 
         chain_and_reorder_extrusion_entities(extrusions, &m_last_pos);
+        if (m_belt_inclined_gcode)
+            sort_entities_for_belt_z(extrusions);
 
         const double  support_speed            = m_config.support_speed.value;
         const double  support_interface_speed  = m_config.get_abs_value("support_interface_speed");
@@ -6014,7 +6069,7 @@ double GCode::compute_belt_inclined_z(const Vec2d& point_gcode, double layer_z) 
         return layer_z;
     }
     // Z varies with Y: Z = layer_z + Y * tan(belt_angle)
-    // For 45 degrees: tan(45) = 1
+    // layer_z already has m_belt_z_base subtracted (done in change_layer).
     double tan_angle = std::tan(m_belt_angle_radians);
     double inclined_z = layer_z + point_gcode.y() * tan_angle;
     return inclined_z;
