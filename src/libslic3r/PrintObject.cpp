@@ -3395,13 +3395,13 @@ void PrintObject::update_slicing_parameters()
     // Orca: updated function call for XYZ shrinkage compensation
     if (!m_slicing_params.valid) {
         float max_z = 0;
+        BeltSlicingParams belt_params = this->get_belt_slicing_params();
 
         {
             max_z = this->model_object()->max_z();
             // ORCA_BELT: For belt printers, compute Z extent from the shear-transformed bbox.
             // trafo_centered() includes the 45° forward shear: Z_virt = Y_mach + Z_mach,
             // which expands the Z range to cover all oblique slicing planes.
-            BeltSlicingParams belt_params = this->get_belt_slicing_params();
             if (belt_params.angle != 0.0) {
                 BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
                 if (bbox.defined) {
@@ -3413,6 +3413,19 @@ void PrintObject::update_slicing_parameters()
 
         m_slicing_params = SlicingParameters::create_from_config(this->print()->config(), m_config, max_z,
                                                                  this->object_extruders(), this->print()->shrinkage_compensation());
+
+        // ORCA_BELT: Scale virtual Z layer spacing by 1/cos(belt_angle) so that the
+        // belt-normal distance between layers equals the user's layer_height setting.
+        // For 45°: 0.2mm layer_height → 0.283mm virtual Z spacing → 0.2mm belt-normal.
+        // This matches IdeaMaker's layer count (~72 layers for 20mm belt travel).
+        // Layer.height is separately corrected in new_layers() for extrusion calculations.
+        if (belt_params.angle != 0.0) {
+            double scale = 1.0 / std::cos(belt_params.angle);
+            m_slicing_params.layer_height              *= scale;
+            m_slicing_params.first_print_layer_height  *= scale;
+            m_slicing_params.first_object_layer_height *= scale;
+            m_slicing_params.max_layer_height          *= scale;
+        }
     }
 }
 
@@ -4441,9 +4454,16 @@ void PrintObject::get_belt_slicing_params_v_frame(
 // ORCA_BELT
 BeltSlicingParams PrintObject::get_belt_slicing_params() const
 {
-    if (m_print->config().printer_structure.value == psBelt) {
+    // Check all belt printer indicators:
+    // - printer_structure == Belt (enum)
+    // - printer_is_belt flag (bool)
+    // - belt_inclined_gcode (bool, always set when belt slicing is active)
+    if (m_print->config().printer_structure.value == psBelt ||
+        m_print->config().printer_is_belt.value ||
+        m_print->config().belt_inclined_gcode.value) {
          double angle_deg = m_print->config().belt_angle.value;
-         return BeltSlicingParams(Geometry::deg2rad(angle_deg));
+         if (angle_deg > 0.0)
+             return BeltSlicingParams(Geometry::deg2rad(angle_deg));
     }
     return BeltSlicingParams(0.0);
 }

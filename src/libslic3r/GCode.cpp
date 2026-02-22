@@ -1579,12 +1579,20 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
 
         // Check that there are extrusions on the very first layer. The case with empty
         // first layer may result in skirt/brim in the air and maybe other issues.
+        // ORCA_BELT: Belt printers naturally produce empty initial layers because oblique
+        // slicing at the object's leading edge creates thin slivers too small to print.
         if (layers_to_print.size() == 1u) {
             if (!has_extrusions) {
-                BOOST_LOG_TRIVIAL(error) << "Empty initial layer detected. Ignoring for debug.";
-                if (layer_to_print.object_layer)
-                    BOOST_LOG_TRIVIAL(error) << "Object Layer Z: " << layer_to_print.object_layer->print_z;
-                // throw Slic3r::SlicingError(_(L("One object has empty initial layer and can't be printed. Please Cut the bottom or enable supports.")), object.id().id);
+                bool is_belt = object.print()->config().printer_structure.value == psBelt ||
+                               object.print()->config().printer_is_belt.value ||
+                               object.print()->config().belt_inclined_gcode.value;
+                if (is_belt) {
+                    BOOST_LOG_TRIVIAL(info) << "Belt printer: empty initial layer at Z="
+                        << (layer_to_print.object_layer ? layer_to_print.object_layer->print_z : 0.)
+                        << " (expected for oblique slicing at object leading edge)";
+                } else {
+                    throw Slic3r::SlicingError(_(L("One object has empty initial layer and can't be printed. Please Cut the bottom or enable supports.")), object.id().id);
+                }
             }
         }
 
@@ -1624,17 +1632,31 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
     }
 
     if (! warning_ranges.empty()) {
-        std::string warning;
-        size_t i = 0;
-        for (i = 0; i < std::min(warning_ranges.size(), size_t(5)); ++i)
-            warning += Slic3r::format(_(L("Object can't be printed for empty layer between %1% and %2%.")),
-                                      warning_ranges[i].first, warning_ranges[i].second) + "\n";
-        warning += Slic3r::format(_(L("Object: %1%")), object.model_object()->name) + "\n"
-            + _(L("Maybe parts of the object at these height are too thin, or the object has faulty mesh"));
+        // ORCA_BELT: Belt printers naturally have empty initial layers from oblique slicing.
+        // Filter out gaps starting from Z=0 for belt printers (object leading edge).
+        bool is_belt = object.print()->config().printer_structure.value == psBelt ||
+                       object.print()->config().printer_is_belt.value ||
+                       object.print()->config().belt_inclined_gcode.value;
+        if (is_belt) {
+            // Remove gaps starting from Z≈0 (leading edge of belt-printed objects)
+            warning_ranges.erase(
+                std::remove_if(warning_ranges.begin(), warning_ranges.end(),
+                    [](const std::pair<double, double>& r) { return r.first < EPSILON; }),
+                warning_ranges.end());
+        }
 
-        // const_cast<Print*>(object.print())->active_step_add_warning(
-        //    PrintStateBase::WarningLevel::CRITICAL, warning, PrintStateBase::SlicingEmptyGcodeLayers);
-        BOOST_LOG_TRIVIAL(error) << "Ignored SlicingEmptyGcodeLayers warning: " << warning;
+        if (! warning_ranges.empty()) {
+            std::string warning;
+            size_t i = 0;
+            for (i = 0; i < std::min(warning_ranges.size(), size_t(5)); ++i)
+                warning += Slic3r::format(_(L("Object can't be printed for empty layer between %1% and %2%.")),
+                                          warning_ranges[i].first, warning_ranges[i].second) + "\n";
+            warning += Slic3r::format(_(L("Object: %1%")), object.model_object()->name) + "\n"
+                + _(L("Maybe parts of the object at these height are too thin, or the object has faulty mesh"));
+
+            const_cast<Print*>(object.print())->active_step_add_warning(
+                PrintStateBase::WarningLevel::CRITICAL, warning, PrintStateBase::SlicingEmptyGcodeLayers);
+        }
     }
 
     return layers_to_print;

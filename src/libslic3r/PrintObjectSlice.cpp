@@ -30,12 +30,19 @@ LayerPtrs new_layers(
     out.reserve(object_layers.size());
     auto     id   = int(print_object->slicing_parameters().raft_layers());
     coordf_t zmin = print_object->slicing_parameters().object_print_z_min;
+
+    // ORCA_BELT: Layer.height must be the belt-normal distance (not virtual Z spacing)
+    // so that Flow/extrusion calculations use the correct physical layer thickness.
+    // Virtual Z spacing = layer_height / cos(θ), so multiply back by cos(θ).
+    BeltSlicingParams belt_params = print_object->get_belt_slicing_params();
+    double height_scale = (belt_params.angle != 0.0) ? std::cos(belt_params.angle) : 1.0;
+
     Layer   *prev = nullptr;
     for (size_t i_layer = 0; i_layer < object_layers.size(); i_layer += 2) {
         coordf_t lo = object_layers[i_layer];
         coordf_t hi = object_layers[i_layer + 1];
         coordf_t slice_z = 0.5 * (lo + hi);
-        Layer *layer = new Layer(id ++, print_object, hi - lo, hi + zmin, slice_z);
+        Layer *layer = new Layer(id ++, print_object, (hi - lo) * height_scale, hi + zmin, slice_z);
         out.emplace_back(layer);
         if (prev != nullptr) {
             prev->upper_layer = layer;
