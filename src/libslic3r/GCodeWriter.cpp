@@ -566,6 +566,17 @@ it will not perform subsequent lifts, even if Z was raised manually
 (i.e. with travel_to_z()) and thus _lifted was reduced. */
 std::string GCodeWriter::lazy_lift(LiftType lift_type, bool spiral_vase)
 {
+    // ORCA_BELT: Belt printers must not Z-hop. On a belt printer Y and Z are
+    // coupled through the inverse transform, and the inclined Z (m_nominal_z +
+    // Y*tan(45°)) varies with Y position.  A deferred lift (m_to_lift) gets
+    // applied in travel_to_xyz() by adding m_to_lift to m_pos.z — but m_pos.z
+    // still contains the PREVIOUS point's inclined Z.  When the destination Y
+    // differs, this produces a wrong Z that the inverse transform cannot cancel,
+    // resulting in mid-layer Z jumps on the belt.  IdeaMaker also never Z-hops
+    // on belt printers.
+    if (m_is_belt)
+        return "";
+
     // check whether the above/below conditions are met
     double target_lift = 0;
     {
@@ -592,8 +603,12 @@ std::string GCodeWriter::lazy_lift(LiftType lift_type, bool spiral_vase)
 }
 
 // BBS: immediately execute an undelayed lift move with a spiral lift pattern
-// designed specifically for subsequent gcode injection (e.g. timelapse) 
+// designed specifically for subsequent gcode injection (e.g. timelapse)
 std::string GCodeWriter::eager_lift(const LiftType type) {
+    // ORCA_BELT: No Z-hop for belt printers (see lazy_lift comment for details).
+    if (m_is_belt)
+        return "";
+
     std::string lift_move;
     double target_lift = 0;
     {
@@ -643,6 +658,11 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
     //BBS: a z_hop need to be handle when travel
     if (std::abs(m_to_lift) > EPSILON) {
+        // ORCA_BELT: Belt printers must never apply deferred Z-hop (see lazy_lift).
+        // If m_to_lift is somehow non-zero, just clear it without corrupting dest_point.z.
+        if (m_is_belt) {
+            m_to_lift = 0.;
+        } else {
         assert(std::abs(m_lifted) < EPSILON);
         //BBS: don't need to do real lift if the current position is absolutely same with target.
         //This ususally happens when the last extrusion line is short and the end of wipe position
@@ -719,8 +739,14 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         m_pos = dest_point;
         this->set_current_position_clear(true);
         return slop_move + xy_z_move;
+        } // end else (non-belt z-hop handling)
     }
-    else if (!force_z && !this->will_move_z(point(2))) {
+    // ORCA_BELT: Belt printers must NOT use the XY-only path. On a belt printer,
+    // inclined_z = m_nominal_z + Y*tan(45°). When Y doesn't change, will_move_z()
+    // returns false and this path would call travel_to_xy(), which uses emit_xy(Vec3d)
+    // that adds Y*tan(angle) to m_pos.z — but m_pos.z already contains the incline.
+    // This double-applies the incline, producing Z jumps of ~Y_gcode on the belt.
+    else if (!m_is_belt && !force_z && !this->will_move_z(point(2))) {
         double nominal_z = m_pos(2) - m_lifted;
         m_lifted -= (point(2) - nominal_z);
         // In case that z_hop == layer_height we could end up with almost zero in_m_lifted
