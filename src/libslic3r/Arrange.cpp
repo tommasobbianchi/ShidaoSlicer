@@ -95,6 +95,11 @@ void update_arrange_params(ArrangeParams& params, const DynamicPrintConfig* prin
         params.bed_shrink_x -= params.clearance_radius / 2;
         params.bed_shrink_y -= params.clearance_radius / 2;
     }
+
+    // ORCA_BELT: Read best_object_pos from config (used by GUI path via ArrangeJob,
+    // but CLI path needs it here too)
+    if (auto* opt = print_cfg->option<ConfigOptionPoint>("best_object_pos"))
+        params.align_center = opt->value;
 }
 
 void update_selected_items_inflation(ArrangePolygons& selected, const DynamicPrintConfig* print_cfg, ArrangeParams& params) {

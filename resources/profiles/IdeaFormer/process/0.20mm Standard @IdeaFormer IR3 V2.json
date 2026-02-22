@@ -9,6 +9,8 @@
     "wall_loops": "2",
     "reduce_infill_retraction": "1",
     "detect_overhang_wall": "1",
+    "skirt_loops": "0",
+    "skirt_distance": "0",
     "compatible_printers": [
         "IdeaFormer IR3 V2 0.4 nozzle"
     ]

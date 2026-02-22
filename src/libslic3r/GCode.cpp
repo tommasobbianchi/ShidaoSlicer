@@ -7643,18 +7643,29 @@ std::string GCode::set_object_info(Print *print) {
 Vec2d GCode::point_to_gcode(const Point &point) const
 {
     Vec2d extruder_offset = EXTRUDER_CONFIG(extruder_offset);
-    return unscale(point) + m_origin - extruder_offset;
+    Vec2d origin = m_origin;
+    // ORCA_BELT: For belt printers, the Y_gcode coordinate maps to belt position (Z_mach)
+    // via inverse_transform_point. The Y must be relative to the object geometry,
+    // not offset by the arrangement position on the bed. The arrangement Y offset
+    // would otherwise shift Z_mach by hundreds of mm (object placed at bed Y=14+).
+    if (m_belt_inclined_gcode)
+        origin.y() = 0;
+    return unscale(point) + origin - extruder_offset;
 }
 
 // convert a model-space scaled point into G-code coordinates
 Point GCode::gcode_to_point(const Vec2d &point) const
 {
-    Vec2d pt = point - m_origin;
+    Vec2d origin = m_origin;
+    // ORCA_BELT: Match point_to_gcode — belt printers don't use Y origin offset
+    if (m_belt_inclined_gcode)
+        origin.y() = 0;
+    Vec2d pt = point - origin;
     if (const Extruder *extruder = m_writer.filament(); extruder)
         // This function may be called at the very start from toolchange G-code when the extruder is not assigned yet.
         pt += m_config.extruder_offset.get_at(extruder->extruder_id());
     return scaled<coord_t>(pt);
-        
+
 }
 
 Vec2d GCode::point_to_gcode_quantized(const Point& point) const

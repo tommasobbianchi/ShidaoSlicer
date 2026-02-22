@@ -24,6 +24,7 @@
         "0x2000"
     ],
     "printable_height": "250",
+    "best_object_pos": "0.5x0",
     "origin_at_center": "0",
     "curr_bed_type": "Textured PEI Plate",
     "heated_bed": "1",

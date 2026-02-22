@@ -33,9 +33,9 @@ struct BeltConfig {
     double i_y_shift = 0.0;
     double f_z_shift = 0.0;
     double i_z_shift = 0.0;
-    double z_mach_offset = 2.5;     // Z offset for belt position (ensures positive Z_mach after prime)
+    double z_mach_offset = 0.15;    // Z offset: shifts Z_mach (belt position) start
     double y_mach_offset = 0.0;     // Y offset: 0 → first layer at Y=0.283 (correct belt-normal)
-    double trafo_z_shift = -990.0;  // Z-shift applied in trafo_centered() after belt transform
+    double trafo_z_shift = 0.0;     // Z-shift in trafo_centered(): 0 when objects arranged near Y=0
 
     bool loaded = false;
     
