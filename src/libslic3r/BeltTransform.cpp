@@ -9,24 +9,33 @@
 namespace Slic3r {
 
 struct BeltConfig {
-    // Defaults (45 degrees) matching Design Doc
-    double f_yy = 0.70710678;
+    // IdeaFormer IR3 V2: X=lateral, Y=gantry(45° to belt surface), Z=belt(infinite)
+    //
+    // Forward transform: Machine → Virtual (for slicing)
+    //   Y_virt = Z_mach, Z_virt = Y_mach + Z_mach
+    double f_yy = 0.0;
     double f_yz = 1.0;
-    double f_zy = 0.70710678;
-    double f_zz = 0.0;
+    double f_zy = 1.0;
+    double f_zz = 1.0;
 
-    double i_yy = 0.0;
-    double i_yz = 1.41421356;
-    double i_zy = 1.0;
-    double i_zz = -1.0;
+    // Inverse transform: Virtual → Machine (for G-code output)
+    // With compute_belt_inclined_z (Z_input = m_nominal_z + Y_gcode):
+    //   Y_mach = (i_yy+i_yz)*Y_gcode + i_yz*m_nominal_z + y_mach_offset
+    //   Z_mach = (i_zy+i_zz)*Y_gcode + i_zz*m_nominal_z + z_mach_offset
+    // i_yy+i_yz=0 keeps Y_mach constant per layer.
+    // i_yz=√2 gives ΔY_mach = √2 × Δlayer = 0.283mm per 0.2mm layer (45° gantry scaling).
+    double i_yy = -1.41421356; // -√2
+    double i_yz =  1.41421356; //  √2
+    double i_zy =  1.0;
+    double i_zz =  0.0;
 
     double f_y_shift = 0.0;
     double i_y_shift = 0.0;
     double f_z_shift = 0.0;
     double i_z_shift = 0.0;
-    double z_mach_offset = 0.4;     // Direct offset added to Z_mach output (for first layer)
-    double y_mach_offset = 0.0;     // Direct offset added to Y_mach output
-    double trafo_z_shift = -973.0;  // Z-shift applied in trafo_centered() after belt transform
+    double z_mach_offset = 2.5;     // Z offset for belt position (ensures positive Z_mach after prime)
+    double y_mach_offset = 0.0;     // Y offset: 0 → first layer at Y=0.283 (correct belt-normal)
+    double trafo_z_shift = -990.0;  // Z-shift applied in trafo_centered() after belt transform
 
     bool loaded = false;
     

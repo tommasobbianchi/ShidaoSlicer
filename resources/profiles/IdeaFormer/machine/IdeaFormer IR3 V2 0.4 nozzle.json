@@ -25,6 +25,7 @@
     ],
     "printable_height": "250",
     "origin_at_center": "0",
+    "curr_bed_type": "Textured PEI Plate",
     "heated_bed": "1",
     "max_nozzle_temp": "260",
     "max_bed_temp": "100",
