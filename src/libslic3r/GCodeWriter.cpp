@@ -3,6 +3,7 @@
 #include "PrintConfig.hpp"
 #include "Geometry.hpp"
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -566,17 +567,6 @@ it will not perform subsequent lifts, even if Z was raised manually
 (i.e. with travel_to_z()) and thus _lifted was reduced. */
 std::string GCodeWriter::lazy_lift(LiftType lift_type, bool spiral_vase)
 {
-    // ORCA_BELT: Belt printers must not Z-hop. On a belt printer Y and Z are
-    // coupled through the inverse transform, and the inclined Z (m_nominal_z +
-    // Y*tan(45°)) varies with Y position.  A deferred lift (m_to_lift) gets
-    // applied in travel_to_xyz() by adding m_to_lift to m_pos.z — but m_pos.z
-    // still contains the PREVIOUS point's inclined Z.  When the destination Y
-    // differs, this produces a wrong Z that the inverse transform cannot cancel,
-    // resulting in mid-layer Z jumps on the belt.  IdeaMaker also never Z-hops
-    // on belt printers.
-    if (m_is_belt)
-        return "";
-
     // check whether the above/below conditions are met
     double target_lift = 0;
     {
@@ -585,12 +575,14 @@ std::string GCodeWriter::lazy_lift(LiftType lift_type, bool spiral_vase)
         int filament_id = filament()->id();
         double above = this->config.retract_lift_above.get_at(extruder_id);
         double below = this->config.retract_lift_below.get_at(extruder_id);
-        if (m_pos.z() >= above && m_pos.z() <= below)
+        if (m_pos.z() >= above && (below <= 0 || m_pos.z() <= below))
             target_lift = this->config.z_hop.get_at(filament_id);
     }
     // BBS
     if (m_lifted == 0 && m_to_lift == 0 && target_lift > 0) {
-        if (spiral_vase) {
+        // ORCA_BELT: Belt printers use deferred Y-lift (applied in travel_to_xyz).
+        // Skip spiral_vase immediate Z-lift for belt — always use the deferred path.
+        if (spiral_vase && !m_is_belt) {
             m_lifted = target_lift;
             return this->_travel_to_z(m_pos(2) + target_lift, "lift Z");
         }
@@ -605,10 +597,6 @@ std::string GCodeWriter::lazy_lift(LiftType lift_type, bool spiral_vase)
 // BBS: immediately execute an undelayed lift move with a spiral lift pattern
 // designed specifically for subsequent gcode injection (e.g. timelapse)
 std::string GCodeWriter::eager_lift(const LiftType type) {
-    // ORCA_BELT: No Z-hop for belt printers (see lazy_lift comment for details).
-    if (m_is_belt)
-        return "";
-
     std::string lift_move;
     double target_lift = 0;
     {
@@ -617,8 +605,29 @@ std::string GCodeWriter::eager_lift(const LiftType type) {
         int filament_id = filament()->id();
         double above = this->config.retract_lift_above.get_at(extruder_id);
         double below = this->config.retract_lift_below.get_at(extruder_id);
-        if (m_pos.z() >= above && m_pos.z() <= below)
+        if (m_pos.z() >= above && (below <= 0 || m_pos.z() <= below))
             target_lift = this->config.z_hop.get_at(filament_id);
+    }
+
+    // ORCA_BELT: Belt Y-lift — move gantry away from belt surface.
+    // Add hop/√2 to both Y_gcode and Z_gcode so Y_mach increases by hop
+    // while Z_mach stays constant (belt doesn't move).
+    if (m_is_belt && target_lift > 0) {
+        double hop_gcode = target_lift / std::sqrt(2.0);
+        Vec3d target(m_pos(0), m_pos(1) + hop_gcode, m_pos(2) + hop_gcode);
+        Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
+        GCodeG1Formatter w(m_is_belt, m_belt_angle);
+        w.emit_xyz(point_on_plate);
+        double speed = this->config.travel_speed_z.value;
+        if (speed == 0.)
+            speed = m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed")
+                                     : this->config.travel_speed.value;
+        w.emit_f(speed * 60.0);
+        w.emit_comment(GCodeWriter::full_gcode_comment, "belt Y-lift");
+        m_pos = target;
+        m_lifted = target_lift;
+        m_to_lift = 0;
+        return w.string();
     }
 
     // BBS: spiral lift only safe with known position
@@ -626,7 +635,7 @@ std::string GCodeWriter::eager_lift(const LiftType type) {
     if (type == LiftType::SpiralLift && this->is_current_position_clear()) {
         double radius = target_lift / (2 * PI * atan(filament()->travel_slope()));
         // static spiral alignment when no move in x,y plane.
-        // spiral centra is a radius distance to the right (y=0) 
+        // spiral centra is a radius distance to the right (y=0)
         Vec2d ij_offset = { radius, 0 };
         if (target_lift > 0) {
             lift_move = this->_spiral_travel_to_z(m_pos(2) + target_lift, ij_offset, "spiral lift Z");
@@ -658,9 +667,13 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
     //BBS: a z_hop need to be handle when travel
     if (std::abs(m_to_lift) > EPSILON) {
-        // ORCA_BELT: Belt printers must never apply deferred Z-hop (see lazy_lift).
-        // If m_to_lift is somehow non-zero, just clear it without corrupting dest_point.z.
+        // ORCA_BELT: Belt Y-lift — add hop/√2 to both Y and Z of destination.
+        // Y_mach increases by hop (gantry lifts), Z_mach stays constant (belt stationary).
         if (m_is_belt) {
+            double hop_gcode = m_to_lift / std::sqrt(2.0);
+            dest_point(1) += hop_gcode;
+            dest_point(2) += hop_gcode;
+            m_lifted = m_to_lift;
             m_to_lift = 0.;
         } else {
         assert(std::abs(m_lifted) < EPSILON);
@@ -1053,7 +1066,25 @@ std::string GCodeWriter::unlift()
 {
     std::string gcode;
     if (m_lifted > 0) {
-        gcode += this->_travel_to_z(m_pos(2) - m_lifted, "restore layer Z");
+        if (m_is_belt) {
+            // ORCA_BELT: Belt Y-unlift — subtract hop/√2 from both Y and Z
+            // to lower gantry back to belt surface without moving belt.
+            double hop_gcode = m_lifted / std::sqrt(2.0);
+            Vec3d target(m_pos(0), m_pos(1) - hop_gcode, m_pos(2) - hop_gcode);
+            Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
+            GCodeG1Formatter w(m_is_belt, m_belt_angle);
+            w.emit_xyz(point_on_plate);
+            double speed = this->config.travel_speed_z.value;
+            if (speed == 0.)
+                speed = m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed")
+                                         : this->config.travel_speed.value;
+            w.emit_f(speed * 60.0);
+            w.emit_comment(GCodeWriter::full_gcode_comment, "belt Y-unlift");
+            gcode += w.string();
+            m_pos = target;
+        } else {
+            gcode += this->_travel_to_z(m_pos(2) - m_lifted, "restore layer Z");
+        }
         m_lifted = 0;
     }
     m_to_lift = 0.;
