@@ -8,36 +8,45 @@
 
 namespace Slic3r {
 
+// ============================================================================
+// LOCKED TRANSFORM COEFFICIENTS — physically validated on IdeaFormer IR3 V2
+// Printed Benchy 2026-02-23. DO NOT CHANGE without a physical test print.
+// ============================================================================
+//
+// Forward: model (perpendicular height) → virtual slicing space
+//   Y_virt = Y_model × cos(45°) = Y_model / √2
+//   Z_virt = Y_model / √2 + Z_model
+//
+// Inverse: virtual gcode → machine (gantry travel along 45° incline)
+//   Y_mach = 2 × Y_gcode = Y_model × √2   (gantry travel, IdeaMaker convention)
+//   Z_mach = -Y_gcode + Z_gcode = layer_z   (belt position, constant per layer)
+//
+// Forward and Inverse are NOT matrix inverses. The √2 gap accounts for:
+//   Model Y = perpendicular height above belt
+//   Machine Y = gantry travel along 45° incline = perp_height × √2
+//
+static constexpr double BELT_F_YY =  0.70710678;   // cos(45°) = 1/√2
+static constexpr double BELT_F_YZ =  0.0;
+static constexpr double BELT_F_ZY =  0.70710678;   // cos(45°) = 1/√2
+static constexpr double BELT_F_ZZ =  1.0;
+
+static constexpr double BELT_I_YY =  2.0;           // 1/cos²(45°) — gantry travel
+static constexpr double BELT_I_YZ =  0.0;
+static constexpr double BELT_I_ZY = -1.0;
+static constexpr double BELT_I_ZZ =  1.0;
+
+// Tunable offsets — these CAN be adjusted via belt_transform.ini
 struct BeltConfig {
-    // IdeaFormer IR3 V2: X=lateral, Y=gantry(45° to belt surface), Z=belt(infinite)
-    //
-    // Forward transform: Machine → Virtual (for slicing / trafo_centered)
-    //   Y_virt = Y_model/√2, Z_virt = Y_model/√2 + Z_model
-    double f_yy = 0.70710678;   // cos(45°)
-    double f_yz = 0.0;
-    double f_zy = 0.70710678;   // cos(45°)
-    double f_zz = 1.0;
-
-    // Inverse transform: Virtual → Machine (for G-code output)
-    // With compute_belt_inclined_z (Z_input = m_nominal_z + Y_gcode * tan(45°)):
-    //   Y_mach = 2 * Y_gcode = Y_model × √2     (gantry travel along 45° incline)
-    //   Z_mach = -Y_gcode + Z_gcode = m_nominal_z  (belt position, constant per layer)
-    // i_yy = 1/cos²(45°) = 2, NOT √2. See belt_transform.ini for explanation.
-    double i_yy =  2.0;        // 1/cos²(45°): Y_mach = 2 × Y_gcode (gantry travel, IdeaMaker convention)
-    double i_yz =  0.0;        //  0: Y_mach independent of layer height
-    double i_zy = -1.0;        // -1: Z_mach = -Y_gcode + Z_gcode = m_nominal_z
-    double i_zz =  1.0;        //  1: Z_mach = m_nominal_z (belt advances with each layer)
-
     double f_y_shift = 0.0;
     double i_y_shift = 0.0;
     double f_z_shift = 0.0;
     double i_z_shift = 0.0;
-    double z_mach_offset = 0.0;     // Z offset: 0 → Z_mach = m_nominal_z directly (first extrusion at Z=0.400)
-    double y_mach_offset = 0.0;     // Y offset: 0 → Y_mach = 2 × Y_gcode (first layer Y≈0 to Y_model×√2)
-    double trafo_z_shift = 0.0;     // Z-shift in trafo_centered(): 0 when objects arranged near Y=0
+    double z_mach_offset = 0.0;     // Z offset applied to Z_mach
+    double y_mach_offset = 0.0;     // Y offset applied to Y_mach
+    double trafo_z_shift = 0.0;     // Z-shift in trafo_centered()
 
     bool loaded = false;
-    
+
     void load() {
         if (loaded) return;
         std::ifstream f("/home/user/projects/ORCA_BELT/belt_transform.ini");
@@ -48,31 +57,24 @@ struct BeltConfig {
                 auto pos = line.find('=');
                 if (pos != std::string::npos) {
                     std::string key = line.substr(0, pos);
-                    // trim key
                     key.erase(0, key.find_first_not_of(" \t"));
                     key.erase(key.find_last_not_of(" \t") + 1);
                     double val = 0.0;
                     try {
                         val = std::stod(line.substr(pos + 1));
                     } catch (...) { continue; }
-                    
-                    if (key == "f_yy") f_yy = val;
-                    else if (key == "f_yz") f_yz = val;
-                    else if (key == "f_zy") f_zy = val;
-                    else if (key == "f_zz") f_zz = val;
-                    else if (key == "i_yy") i_yy = val;
-                    else if (key == "i_yz") i_yz = val;
-                    else if (key == "i_zy") i_zy = val;
-                    else if (key == "i_zz") i_zz = val;
-                    else if (key == "f_y_shift") f_y_shift = val;
-                    else if (key == "i_y_shift") i_y_shift = val;
-                    else if (key == "f_z_shift") f_z_shift = val;
-                    else if (key == "i_z_shift") i_z_shift = val;
+
+                    // Only tunable offsets — transform coefficients are LOCKED
+                    if      (key == "f_y_shift")     f_y_shift = val;
+                    else if (key == "i_y_shift")     i_y_shift = val;
+                    else if (key == "f_z_shift")     f_z_shift = val;
+                    else if (key == "i_z_shift")     i_z_shift = val;
                     else if (key == "trafo_z_shift") trafo_z_shift = val;
                     else if (key == "z_mach_offset") z_mach_offset = val;
                     else if (key == "y_mach_offset") y_mach_offset = val;
-                    // Legacy support or alias
                     else if (key == "y_shift") { f_y_shift = val; i_y_shift = val; }
+                    // Transform coefficients (f_yy, i_yy, etc.) are intentionally
+                    // NOT loaded from ini — they are locked constants above.
                 }
             }
         }
@@ -89,38 +91,30 @@ void ensure_config() {
 Transform3d BeltTransform::make_forward_transform(double angle_degrees)
 {
     ensure_config();
-    // Forward Transform: Machine -> Virtual
     Transform3d t = Transform3d::Identity();
 
-    // Linear part
-    t.matrix()(1, 1) = g_belt_config.f_yy; 
-    t.matrix()(1, 2) = g_belt_config.f_yz;
-    t.matrix()(2, 1) = g_belt_config.f_zy; 
-    t.matrix()(2, 2) = g_belt_config.f_zz;
-    
-    // Translation: Y_virt += f_y_shift
-    // Typically used to center the object (remove Machine Y offset)
+    t.matrix()(1, 1) = BELT_F_YY;
+    t.matrix()(1, 2) = BELT_F_YZ;
+    t.matrix()(2, 1) = BELT_F_ZY;
+    t.matrix()(2, 2) = BELT_F_ZZ;
+
     t.translate(Vec3d(0, g_belt_config.f_y_shift, 0));
-    
+
     return t;
 }
 
 Transform3d BeltTransform::make_inverse_transform(double angle_degrees)
 {
     ensure_config();
-    // Inverse Transform: Virtual -> Machine
-    
     Transform3d t = Transform3d::Identity();
-    
-    // Linear part
-    t.matrix()(1, 1) = g_belt_config.i_yy;
-    t.matrix()(1, 2) = g_belt_config.i_yz;
-    t.matrix()(2, 1) = g_belt_config.i_zy;     
-    t.matrix()(2, 2) = g_belt_config.i_zz;
-    
-    // Apply shift: Linear * Translate(-i_y_shift)
+
+    t.matrix()(1, 1) = BELT_I_YY;
+    t.matrix()(1, 2) = BELT_I_YZ;
+    t.matrix()(2, 1) = BELT_I_ZY;
+    t.matrix()(2, 2) = BELT_I_ZZ;
+
     t.translate(Vec3d(0, -g_belt_config.i_y_shift, 0));
-    
+
     return t;
 }
 
@@ -129,17 +123,13 @@ Vec3d BeltTransform::inverse_transform_point(const Vec3d& pt, double angle_degre
     if (angle_degrees == 0.0) return pt;
     ensure_config();
 
-    // Add back shifts (to undo forward transform's subtractions)
     double y_virt = pt.y() - g_belt_config.i_y_shift;
     double z_virt = pt.z() + g_belt_config.i_z_shift;
 
-    // Then apply inverse linear transform
-    double y_mach = g_belt_config.i_yy * y_virt + g_belt_config.i_yz * z_virt + g_belt_config.y_mach_offset;
-    double z_mach = g_belt_config.i_zy * y_virt + g_belt_config.i_zz * z_virt + g_belt_config.z_mach_offset;
+    double y_mach = BELT_I_YY * y_virt + BELT_I_YZ * z_virt + g_belt_config.y_mach_offset;
+    double z_mach = BELT_I_ZY * y_virt + BELT_I_ZZ * z_virt + g_belt_config.z_mach_offset;
 
-    // ORCA_BELT: Clamp Y_mach >= 0 — gantry cannot go below belt surface.
-    // Support material or objects with negative Y_gcode would produce negative Y_mach,
-    // which is physically impossible on belt printers.
+    // Clamp Y_mach >= 0 — gantry cannot go below belt surface.
     if (y_mach < 0.0)
         y_mach = 0.0;
 
