@@ -5125,7 +5125,27 @@ LayerResult GCode::process_layer(
                 }
                 //FIXME order islands?
                 // Sequential tool path ordering of multiple parts within the same object, aka. perimeter tracking (#5511)
-                for (ObjectByExtruder::Island &island : instance_to_print.object_by_extruder.islands) {
+                // Belt printer: sort islands by minimum Y (= closest to belt surface first)
+                // so adhesion features print before mid-air features on oblique layers.
+                auto &islands_ref = instance_to_print.object_by_extruder.islands;
+                if (m_belt_inclined_gcode && islands_ref.size() > 1) {
+                    std::stable_sort(islands_ref.begin(), islands_ref.end(),
+                        [](const ObjectByExtruder::Island &a, const ObjectByExtruder::Island &b) {
+                            auto min_y = [](const ObjectByExtruder::Island &isl) -> coord_t {
+                                coord_t my = std::numeric_limits<coord_t>::max();
+                                for (const auto &region : isl.by_region)
+                                    for (const ExtrusionEntity *ee : region.perimeters) {
+                                        Points pts;
+                                        ee->collect_points(pts);
+                                        for (const Point &p : pts)
+                                            my = std::min(my, p.y());
+                                    }
+                                return my;
+                            };
+                            return min_y(a) < min_y(b);
+                        });
+                }
+                for (ObjectByExtruder::Island &island : islands_ref) {
                     const auto& by_region_specific = is_anything_overridden ? island.by_region_per_copy(by_region_per_copy_cache, static_cast<unsigned int>(instance_to_print.instance_id), extruder_id, print_wipe_extrusions != 0) : island.by_region;
                     //BBS: add brim by obj by extruder
                     if (first_layer) {
@@ -5828,14 +5848,28 @@ std::string GCode::extrude_path(ExtrusionPath path, std::string description, dou
     return gcode;
 }
 
-// Belt printer: sort extrusion entities by minimum Y coordinate (= Z_mach direction).
-// This ensures entities are printed front-to-back, minimizing belt reversals.
+// Belt printer: sort extrusion entities so those closest to belt surface (min Y)
+// print first. This ensures bed adhesion before mid-air features on oblique layers.
+// Uses minimum Y across ALL points of each entity, not just first_point (which is
+// the arbitrary pre-seam start position and does not reflect the entity's true
+// proximity to the belt surface).
 static void sort_entities_for_belt_z(ExtrusionEntitiesPtr &entities)
 {
-    std::sort(entities.begin(), entities.end(),
-        [](const ExtrusionEntity *a, const ExtrusionEntity *b) {
-            return a->first_point().y() < b->first_point().y();
-        });
+    // Precompute minimum Y across all points of each entity
+    std::vector<std::pair<coord_t, ExtrusionEntity*>> decorated;
+    decorated.reserve(entities.size());
+    for (ExtrusionEntity *e : entities) {
+        Points pts;
+        e->collect_points(pts);
+        coord_t min_y = std::numeric_limits<coord_t>::max();
+        for (const Point &p : pts)
+            min_y = std::min(min_y, p.y());
+        decorated.emplace_back(min_y, e);
+    }
+    std::stable_sort(decorated.begin(), decorated.end(),
+        [](const auto &a, const auto &b) { return a.first < b.first; });
+    for (size_t i = 0; i < entities.size(); ++i)
+        entities[i] = decorated[i].second;
 }
 
 // Extrude perimeters: Decide where to put seams (hide or align seams).
@@ -5852,7 +5886,7 @@ std::string GCode::extrude_perimeters(const Print &print, const std::vector<Obje
             if (!should_print) continue;
 
             if (m_belt_inclined_gcode) {
-                // Belt: sort perimeters front-to-back (by min Y = min Z_mach)
+                // Belt: sort perimeters by min Y (closest to belt surface first)
                 ExtrusionEntitiesPtr sorted(region.perimeters.begin(), region.perimeters.end());
                 sort_entities_for_belt_z(sorted);
                 for (const ExtrusionEntity* ee : sorted)
