@@ -250,12 +250,9 @@ public:
     void emit_xy(const Vec3d &point) {
         Vec3d final_point = point;
         if (m_is_belt) {
-            // ORCA_BELT: For belt printers, XY-only moves still need the full
-            // inclined Z for the inverse transform (Y_mach depends on Z).
-            // Add the Y*tan(angle) incline, then emit XYZ (not just XY).
+            // ORCA_BELT: Belt printers emit XYZ through the inverse transform.
+            // With i_zy=0, Z_mach = Z_gcode directly — no Y*tan(θ) compensation.
             Vec3d p = point;
-            double angle_rad = m_belt_angle * M_PI / 180.0;
-            p.z() += p.y() * std::tan(angle_rad);
             p.z() += m_z_offset;
             final_point = BeltTransform::inverse_transform_point(p, m_belt_angle);
             this->emit_axis('X', final_point.x(), XYZF_EXPORT_DIGITS);
@@ -289,11 +286,9 @@ public:
 
     void emit_z(const Vec3d &point) {
         if (m_is_belt) {
-            // ORCA_BELT: Add the inclined Z (Y*tan(angle)) so the inverse transform
-            // produces correct Y_mach and Z_mach. Without this, Y_mach goes negative.
+            // ORCA_BELT: Z-only move through inverse transform.
+            // With i_zy=0, Z_mach = Z_gcode — no Y*tan(θ) compensation needed.
             Vec3d p = point;
-            double angle_rad = m_belt_angle * M_PI / 180.0;
-            p.z() += p.y() * std::tan(angle_rad);
             p.z() += m_z_offset;
             Vec3d final_point = BeltTransform::inverse_transform_point(p, m_belt_angle);
             this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);

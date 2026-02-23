@@ -610,11 +610,11 @@ std::string GCodeWriter::eager_lift(const LiftType type) {
     }
 
     // ORCA_BELT: Belt Y-lift — move gantry away from belt surface.
-    // Add hop/√2 to both Y_gcode and Z_gcode so Y_mach increases by hop
-    // while Z_mach stays constant (belt doesn't move).
+    // Y_mach = 2*Y_gcode, so add hop/2 to Y_gcode only → Y_mach += hop.
+    // Z_mach = Z_gcode (i_zy=0), so leave Z unchanged → belt stays put.
     if (m_is_belt && target_lift > 0) {
-        double hop_gcode = target_lift / std::sqrt(2.0);
-        Vec3d target(m_pos(0), m_pos(1) + hop_gcode, m_pos(2) + hop_gcode);
+        double hop_gcode = target_lift / 2.0;
+        Vec3d target(m_pos(0), m_pos(1) + hop_gcode, m_pos(2));
         Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
         GCodeG1Formatter w(m_is_belt, m_belt_angle);
         w.emit_xyz(point_on_plate);
@@ -667,12 +667,12 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
     //BBS: a z_hop need to be handle when travel
     if (std::abs(m_to_lift) > EPSILON) {
-        // ORCA_BELT: Belt Y-lift — add hop/√2 to both Y and Z of destination.
-        // Y_mach increases by hop (gantry lifts), Z_mach stays constant (belt stationary).
+        // ORCA_BELT: Belt Y-lift — add hop/2 to Y of destination only.
+        // Y_mach = 2*Y_gcode → hop/2 in gcode = hop in machine.
+        // Z_mach = Z_gcode (i_zy=0) → belt stays put without Z adjustment.
         if (m_is_belt) {
-            double hop_gcode = m_to_lift / std::sqrt(2.0);
+            double hop_gcode = m_to_lift / 2.0;
             dest_point(1) += hop_gcode;
-            dest_point(2) += hop_gcode;
             m_lifted = m_to_lift;
             m_to_lift = 0.;
         } else {
@@ -773,7 +773,11 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
     else {
         /*  In all the other cases, we perform an actual XYZ move and cancel
             the lift. */
-        m_lifted = 0;
+        // ORCA_BELT: For belt printers, the "lift" is in Y (gantry), not Z.
+        // Don't clear m_lifted on subsequent travel segments — unlift() needs
+        // it to properly lower the gantry back down before extrusion.
+        if (!m_is_belt)
+            m_lifted = 0;
     }
 
     //BBS: take plate offset into consider
@@ -818,7 +822,10 @@ std::string GCodeWriter::travel_to_z(double z, const std::string &comment, bool 
 
     /*  In all the other cases, we perform an actual Z move and cancel
         the lift. */
-    m_lifted = 0;
+    // ORCA_BELT: For belt printers, "lift" is in Y (gantry), not Z.
+    // A Z move doesn't cancel the gantry lift — unlift() handles that.
+    if (!m_is_belt)
+        m_lifted = 0;
     return this->_travel_to_z(z, comment);
 }
 
@@ -1067,10 +1074,10 @@ std::string GCodeWriter::unlift()
     std::string gcode;
     if (m_lifted > 0) {
         if (m_is_belt) {
-            // ORCA_BELT: Belt Y-unlift — subtract hop/√2 from both Y and Z
-            // to lower gantry back to belt surface without moving belt.
-            double hop_gcode = m_lifted / std::sqrt(2.0);
-            Vec3d target(m_pos(0), m_pos(1) - hop_gcode, m_pos(2) - hop_gcode);
+            // ORCA_BELT: Belt Y-unlift — subtract hop/2 from Y only.
+            // Y_mach = 2*Y_gcode → gantry descends. Z unchanged → belt stays.
+            double hop_gcode = m_lifted / 2.0;
+            Vec3d target(m_pos(0), m_pos(1) - hop_gcode, m_pos(2));
             Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
             GCodeG1Formatter w(m_is_belt, m_belt_angle);
             w.emit_xyz(point_on_plate);

@@ -355,13 +355,14 @@ public:
             double z_shift = BeltTransform::get_trafo_z_shift();
             t.translate(Vec3d(0, 0, z_shift));
 
-            // 4. Shift Y_virt so object starts at Y=0 (belt surface)
-            // On belt printers Y_gcode maps to gantry height via inverse transform.
-            // Y_gcode=0 → Y_mach=0 → nozzle on belt surface. Without this shift,
-            // the object floats at Y_mach = √2 × Y_virt_offset (hundreds of mm).
+            // 4. Shift Y_virt and Z_virt so object starts at (Y=0, Z=0)
+            // Y: Y_gcode=0 → Y_mach=0 → nozzle on belt surface.
+            // Z: With f_zy=-1, Z_virt = -Y_model + Z_model can be negative for
+            //    upper-leading-edge points. Shift so Z_virt starts at 0 — this
+            //    gives the correct layer count (e.g. 70 layers for 10mm cube).
             if (m_model_object) {
                 BoundingBoxf3 virtual_bbox = m_model_object->raw_mesh_bounding_box().transformed(t);
-                t.pretranslate(Vec3d(0, -virtual_bbox.min.y(), 0));
+                t.pretranslate(Vec3d(0, -virtual_bbox.min.y(), -virtual_bbox.min.z()));
             }
         } else {
             // Standard printer: apply full centering offset

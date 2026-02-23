@@ -6099,14 +6099,10 @@ double GCode::calc_max_volumetric_speed(const double layer_height, const double 
 
 double GCode::compute_belt_inclined_z(const Vec2d& point_gcode, double layer_z) const
 {
-    if (!m_belt_inclined_gcode) {
-        return layer_z;
-    }
-    // Z varies with Y: Z = layer_z + Y * tan(belt_angle)
-    // layer_z already has m_belt_z_base subtracted (done in change_layer).
-    double tan_angle = std::tan(m_belt_angle_radians);
-    double inclined_z = layer_z + point_gcode.y() * tan_angle;
-    return inclined_z;
+    // With i_zy=0, Z_mach = Z_gcode directly. No Y-based compensation needed.
+    // (Old code added Y*tan(θ) to cancel the i_zy=-1 coupling, but that coupling
+    // was the root cause of 65° ZY shear on physical prints.)
+    return layer_z;
 }
 
 std::string GCode::_extrude(const ExtrusionPath &path, std::string description, double speed)

@@ -9,17 +9,18 @@
 namespace Slic3r {
 
 // ============================================================================
-// LOCKED TRANSFORM COEFFICIENTS — physically validated on IdeaFormer IR3 V2
-// Printed Benchy 2026-02-23. DO NOT CHANGE without a physical test print.
+// LOCKED TRANSFORM COEFFICIENTS — derived from IdeaFormer IR3 V2 (CoreXY, no
+// firmware belt compensation). Fixed 2026-02-23: old f_zy=+0.707, i_zy=-1.0
+// caused 65° ZY shear on physical prints (belt moved during gantry sweep).
 // ============================================================================
 //
-// Forward: model (perpendicular height) → virtual slicing space
-//   Y_virt = Y_model × cos(45°) = Y_model / √2
-//   Z_virt = Y_model / √2 + Z_model
+// Forward: model → virtual slicing space
+//   Y_virt = Y_model / √2                 (project height onto gantry axis)
+//   Z_virt = -Y_model + Z_model           (45° cutting planes: Z_model - Y_model = const)
 //
-// Inverse: virtual gcode → machine (gantry travel along 45° incline)
-//   Y_mach = 2 × Y_gcode = Y_model × √2   (gantry travel, IdeaMaker convention)
-//   Z_mach = -Y_gcode + Z_gcode = layer_z   (belt position, constant per layer)
+// Inverse: virtual gcode → machine coordinates
+//   Y_mach = 2 × Y_gcode                  (gantry travel along 45° incline)
+//   Z_mach = Z_gcode                       (belt position = constant per layer)
 //
 // Forward and Inverse are NOT matrix inverses. The √2 gap accounts for:
 //   Model Y = perpendicular height above belt
@@ -27,12 +28,12 @@ namespace Slic3r {
 //
 static constexpr double BELT_F_YY =  0.70710678;   // cos(45°) = 1/√2
 static constexpr double BELT_F_YZ =  0.0;
-static constexpr double BELT_F_ZY =  0.70710678;   // cos(45°) = 1/√2
+static constexpr double BELT_F_ZY = -1.0;           // Z_virt = -Y_model + Z_model
 static constexpr double BELT_F_ZZ =  1.0;
 
-static constexpr double BELT_I_YY =  2.0;           // 1/cos²(45°) — gantry travel
+static constexpr double BELT_I_YY =  2.0;           // gantry travel = 2 × Y_gcode
 static constexpr double BELT_I_YZ =  0.0;
-static constexpr double BELT_I_ZY = -1.0;
+static constexpr double BELT_I_ZY =  0.0;           // Z_mach = Z_gcode (no Y coupling)
 static constexpr double BELT_I_ZZ =  1.0;
 
 // Tunable offsets — these CAN be adjusted via belt_transform.ini
