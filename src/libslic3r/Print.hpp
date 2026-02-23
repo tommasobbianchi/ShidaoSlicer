@@ -343,26 +343,31 @@ public:
         BeltSlicingParams belt_params = this->get_belt_slicing_params();
 
         if (belt_params.angle != 0.0) {
-            // ORCA_BELT: For belt printers:
-            // 1. Center X only (NOT Y - belt position is handled differently)
+            // ORCA_BELT: Belt printer transform pipeline:
+            // 1. Center X only
             t.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), 0, 0));
 
-            // 2. Apply belt forward transform (rotation/shear)
-            Transform3d belt_forward = BeltTransform::make_forward_transform(Geometry::rad2deg(belt_params.angle));
-            t = belt_forward * t;
-
-            // 3. Shift Z_virt down to bring object to bed level
-            double z_shift = BeltTransform::get_trafo_z_shift();
-            t.translate(Vec3d(0, 0, z_shift));
-
-            // 4. Shift Y_virt and Z_virt so object starts at (Y=0, Z=0)
-            // Y: Y_gcode=0 → Y_mach=0 → nozzle on belt surface.
-            // Z: With f_zy=-1, Z_virt = -Y_model + Z_model can be negative for
-            //    upper-leading-edge points. Shift so Z_virt starts at 0 — this
-            //    gives the correct layer count (e.g. 70 layers for 10mm cube).
             if (m_model_object) {
-                BoundingBoxf3 virtual_bbox = m_model_object->raw_mesh_bounding_box().transformed(t);
-                t.pretranslate(Vec3d(0, -virtual_bbox.min.y(), -virtual_bbox.min.z()));
+                // 2. Place model ON the belt surface: shift world Y so Y_world_min = 0.
+                //    Without this, centered models (Y ∈ [-h/2, h/2]) are half-buried
+                //    in the belt, causing reversed layer order.
+                BoundingBoxf3 world_bbox = m_model_object->raw_mesh_bounding_box().transformed(t);
+                t.pretranslate(Vec3d(0, -world_bbox.min.y(), 0));
+
+                // 3. Apply belt forward transform (model → virtual slicing space)
+                Transform3d belt_forward = BeltTransform::make_forward_transform(Geometry::rad2deg(belt_params.angle));
+                t = belt_forward * t;
+
+                // 4. Shift virtual Z so keel front = Z_virt = 0.
+                //    After step 2, Y_world_min = 0 (keel on belt). Keel front:
+                //      keel_z = f_zy × 0 + f_zz × Z_world_min = Z_world_min
+                //    Points with Z_virt < 0 are the 45° overhang (clipped).
+                double keel_z_virt = belt_forward.matrix()(2,2) * world_bbox.min.z();
+                double trafo_z_shift = BeltTransform::get_trafo_z_shift();
+                t.pretranslate(Vec3d(0, 0, -keel_z_virt + trafo_z_shift));
+            } else {
+                Transform3d belt_forward = BeltTransform::make_forward_transform(Geometry::rad2deg(belt_params.angle));
+                t = belt_forward * t;
             }
         } else {
             // Standard printer: apply full centering offset

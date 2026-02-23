@@ -16,19 +16,24 @@ namespace Slic3r {
 //
 // Forward: model → virtual slicing space
 //   Y_virt = Y_model / √2                 (project height onto gantry axis)
-//   Z_virt = Y_model + Z_model            (45° cutting planes: keel first)
+//   Z_virt = -Y_model + Z_model           (compensates 45° gantry arm depth)
 //
 // Inverse: virtual gcode → machine coordinates
 //   Y_mach = 2 × Y_gcode                  (gantry travel along 45° incline)
 //   Z_mach = Z_gcode                       (belt position = constant per layer)
 //
-// Forward and Inverse are NOT matrix inverses. The √2 gap accounts for:
-//   Model Y = perpendicular height above belt
-//   Machine Y = gantry travel along 45° incline = perp_height × √2
+// Physical geometry proof (f_zy=-1, i_zy=0):
+//   depth_phys = Z_mach + Y_mach/√2 = (-Y+Z) + √2×Y/√2 = Z  ← correct!
+//   height_phys = Y_mach/√2 = √2×Y/√2 = Y                    ← correct!
+// With f_zy=+1: depth = 2Y+Z (sheared). With f_zy=+0.707: depth = 1.707Y+Z (sheared).
+// Only f_zy=-1 gives depth = Z_model (no shear, 90° angles).
+//
+// trafo_centered must NOT shift Z_virt: keel (Y=0) is naturally at Z_virt=0.
+// Front face overhang (Z_virt<0) is clipped — inherent 45° belt limitation.
 //
 static constexpr double BELT_F_YY =  0.70710678;   // cos(45°) = 1/√2
 static constexpr double BELT_F_YZ =  0.0;
-static constexpr double BELT_F_ZY =  1.0;           // Z_virt = Y_model + Z_model (keel first)
+static constexpr double BELT_F_ZY = -1.0;           // Z_virt = -Y + Z (depth = Z_model, no shear)
 static constexpr double BELT_F_ZZ =  1.0;
 
 static constexpr double BELT_I_YY =  2.0;           // gantry travel = 2 × Y_gcode

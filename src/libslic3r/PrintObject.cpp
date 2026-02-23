@@ -3399,14 +3399,17 @@ void PrintObject::update_slicing_parameters()
 
         {
             max_z = this->model_object()->max_z();
-            // ORCA_BELT: For belt printers, compute Z extent from the shear-transformed bbox.
-            // trafo_centered() includes the 45° forward shear: Z_virt = Y_mach + Z_mach,
-            // which expands the Z range to cover all oblique slicing planes.
+            // ORCA_BELT: For belt printers, compute Z extent from the belt-transformed bbox.
+            // With f_zy=-1: Z_virt = -Y_model + Z_model. The keel front is at Z_virt=0
+            // (set by trafo_centered). Points with Z_virt < 0 are the 45° overhang
+            // (inherent belt limitation, clipped). Only the Z_virt > 0 region is printable.
             if (belt_params.angle != 0.0) {
                 BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
                 if (bbox.defined) {
                     bbox = bbox.transformed(this->trafo_centered());
-                    max_z = float(bbox.max.z() - bbox.min.z());
+                    // Use max Z only — the keel-front is at Z=0 after trafo_centered shift.
+                    // Negative Z region is the 45° overhang, not printable.
+                    max_z = float(std::max(0.0, bbox.max.z()));
                 }
             }
         }

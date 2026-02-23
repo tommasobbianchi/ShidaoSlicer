@@ -1161,20 +1161,12 @@ void PrintObject::slice_volumes()
         // ORCA_BELT: Belt frame transform is now in trafo_centered()
         Transform3d slice_trafo = this->trafo_centered();
 
-        // ORCA_BELT: Belt slicing uses trafo_centered() which includes the 45° forward
-        // shear (Z_virt = Y_mach + Z_mach). This expands the Z range so horizontal
-        // slicing planes correspond to oblique cross-sections through the geometry.
-        // Shift Z so the transformed bbox minimum sits at Z=0.
-        {
-            BeltSlicingParams belt_params = this->get_belt_slicing_params();
-            if (belt_params.angle != 0.0) {
-                BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
-                if (bbox.defined) {
-                    bbox = bbox.transformed(slice_trafo);
-                    slice_trafo.pretranslate(Vec3d(0, 0, -bbox.min.z()));
-                }
-            }
-        }
+        // ORCA_BELT: trafo_centered() already positions the model correctly:
+        //   - World Y shifted so model sits ON belt (Y_world_min = 0)
+        //   - Belt forward applied (Z_virt = -Y + Z for 45°)
+        //   - Keel front at Z_virt = 0 (first slicing plane)
+        // Do NOT shift bbox.min.z to 0 — that would put the overhanging
+        // top-front corner at Z=0 instead of the keel, reversing layer order.
 
         objSliceByVolume = slice_volumes_inner(
             print->config(), this->config(), slice_trafo,
