@@ -6713,12 +6713,14 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
                     if (line_length < EPSILON)
                         continue;
                     path_length += line_length;
-                    // Belt shear flow correction: machine Y path = Y_virt/cos(belt_angle)
-                    // Without this, pure Y moves are under-extruded by ~29% (1-cos(45°))
+                    // Belt shear flow correction: Y_mach = Y_gcode / cos²(belt_angle)
+                    // Machine Y is gantry travel along 45° incline, not perpendicular height.
+                    // Path = sqrt(dX² + (dY_mach)²) where dY_mach = dY_gcode / cos²(θ)
                     double extrusion_length = line_length;
                     if (m_belt_inclined_gcode) {
                         Vec2d delta = (line.b - line.a).cast<double>() * SCALING_FACTOR;
-                        double y_scale = 1.0 / std::cos(m_belt_angle_radians);
+                        double cos_a = std::cos(m_belt_angle_radians);
+                        double y_scale = 1.0 / (cos_a * cos_a); // 1/cos²(θ) = sec²(θ) = i_yy
                         extrusion_length = std::sqrt(delta.x() * delta.x() + y_scale * y_scale * delta.y() * delta.y());
                     }
                     auto dE = e_per_mm * extrusion_length;
@@ -6929,10 +6931,12 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
                 last_set_speed = F;
             }
             // Belt shear flow correction (variable-speed path)
+            // Y_mach = Y_gcode / cos²(θ), so machine path is longer than virtual path
             double extrusion_length = line_length;
             if (m_belt_inclined_gcode) {
                 Vec2d delta = p - prev;
-                double y_scale = 1.0 / std::cos(m_belt_angle_radians);
+                double cos_a = std::cos(m_belt_angle_radians);
+                double y_scale = 1.0 / (cos_a * cos_a); // 1/cos²(θ) = sec²(θ) = i_yy
                 extrusion_length = std::sqrt(delta.x() * delta.x() + y_scale * y_scale * delta.y() * delta.y());
             }
             auto dE = e_per_mm * extrusion_length;

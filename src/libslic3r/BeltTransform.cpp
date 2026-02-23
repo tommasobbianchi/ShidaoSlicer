@@ -11,18 +11,19 @@ namespace Slic3r {
 struct BeltConfig {
     // IdeaFormer IR3 V2: X=lateral, Y=gantry(45° to belt surface), Z=belt(infinite)
     //
-    // Forward transform: Machine → Virtual (for slicing)
-    //   Y_virt = Z_mach, Z_virt = Y_mach + Z_mach
-    double f_yy = 0.0;
-    double f_yz = 1.0;
-    double f_zy = 1.0;
+    // Forward transform: Machine → Virtual (for slicing / trafo_centered)
+    //   Y_virt = Y_model/√2, Z_virt = Y_model/√2 + Z_model
+    double f_yy = 0.70710678;   // cos(45°)
+    double f_yz = 0.0;
+    double f_zy = 0.70710678;   // cos(45°)
     double f_zz = 1.0;
 
     // Inverse transform: Virtual → Machine (for G-code output)
     // With compute_belt_inclined_z (Z_input = m_nominal_z + Y_gcode * tan(45°)):
-    //   Y_mach = √2 * Y_gcode                  (gantry traces cross-section, varies within layer)
+    //   Y_mach = 2 * Y_gcode = Y_model × √2     (gantry travel along 45° incline)
     //   Z_mach = -Y_gcode + Z_gcode = m_nominal_z  (belt position, constant per layer)
-    double i_yy =  1.41421356; // √2: Y_mach = √2 × Y_gcode (gantry traces cross-section)
+    // i_yy = 1/cos²(45°) = 2, NOT √2. See belt_transform.ini for explanation.
+    double i_yy =  2.0;        // 1/cos²(45°): Y_mach = 2 × Y_gcode (gantry travel, IdeaMaker convention)
     double i_yz =  0.0;        //  0: Y_mach independent of layer height
     double i_zy = -1.0;        // -1: Z_mach = -Y_gcode + Z_gcode = m_nominal_z
     double i_zz =  1.0;        //  1: Z_mach = m_nominal_z (belt advances with each layer)
@@ -32,7 +33,7 @@ struct BeltConfig {
     double f_z_shift = 0.0;
     double i_z_shift = 0.0;
     double z_mach_offset = 0.0;     // Z offset: 0 → Z_mach = m_nominal_z directly (first extrusion at Z=0.400)
-    double y_mach_offset = 0.0;     // Y offset: 0 → Y_mach = √2 × Y_gcode (first layer Y≈0 to 0.283)
+    double y_mach_offset = 0.0;     // Y offset: 0 → Y_mach = 2 × Y_gcode (first layer Y≈0 to Y_model×√2)
     double trafo_z_shift = 0.0;     // Z-shift in trafo_centered(): 0 when objects arranged near Y=0
 
     bool loaded = false;
