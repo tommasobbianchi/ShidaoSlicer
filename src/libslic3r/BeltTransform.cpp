@@ -16,7 +16,7 @@ namespace Slic3r {
 //
 // Forward: model → virtual slicing space
 //   Y_virt = Y_model / √2                 (project height onto gantry axis)
-//   Z_virt = -Y_model + Z_model           (45° cutting planes: Z_model - Y_model = const)
+//   Z_virt = Y_model + Z_model            (45° cutting planes: keel first)
 //
 // Inverse: virtual gcode → machine coordinates
 //   Y_mach = 2 × Y_gcode                  (gantry travel along 45° incline)
@@ -28,7 +28,7 @@ namespace Slic3r {
 //
 static constexpr double BELT_F_YY =  0.70710678;   // cos(45°) = 1/√2
 static constexpr double BELT_F_YZ =  0.0;
-static constexpr double BELT_F_ZY = -1.0;           // Z_virt = -Y_model + Z_model
+static constexpr double BELT_F_ZY =  1.0;           // Z_virt = Y_model + Z_model (keel first)
 static constexpr double BELT_F_ZZ =  1.0;
 
 static constexpr double BELT_I_YY =  2.0;           // gantry travel = 2 × Y_gcode
