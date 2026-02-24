@@ -6434,9 +6434,16 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
 
         if (one_by_one) {
             // BBS: add load_old_project logic
-            if (type_3mf && !is_project_file && !load_old_project)
-                // if (type_3mf && !is_project_file)
-                model.center_instances_around_point(this->bed.build_volume().bed_center());
+            if (type_3mf && !is_project_file && !load_old_project) {
+                // ORCA_BELT: Use best_object_pos for initial placement (belt → Y=0)
+                Vec2d center = this->bed.build_volume().bed_center();
+                if (auto* opt = this->config->option<ConfigOptionPoint>("best_object_pos")) {
+                    auto bb = this->bed.build_volume().bounding_volume2d();
+                    center = bb.min + Vec2d(bb.size().x() * opt->value.x(),
+                                            bb.size().y() * opt->value.y());
+                }
+                model.center_instances_around_point(center);
+            }
             // BBS: add auxiliary files logic
             // BBS: backup & restore
             if (load_aux) {
@@ -6750,7 +6757,16 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
     // BBS: find an empty cell to put the copied object
     for (auto& instance : new_instances) {
         auto offset = instance->get_offset();
-        auto start_point = this->bed.build_volume().bounding_volume2d().center();
+        // ORCA_BELT: Use best_object_pos from config if available (belt printers
+        // need objects at belt start Y=0, not bed center Y=1000).
+        Vec2d start_point;
+        if (auto* opt = this->config->option<ConfigOptionPoint>("best_object_pos")) {
+            auto bb = this->bed.build_volume().bounding_volume2d();
+            start_point = bb.min + Vec2d(bb.size().x() * opt->value.x(),
+                                         bb.size().y() * opt->value.y());
+        } else {
+            start_point = this->bed.build_volume().bounding_volume2d().center();
+        }
         bool plate_empty = partplate_list.get_curr_plate()->empty();
         Vec3d displacement;
         if (plate_empty)

@@ -2514,7 +2514,20 @@ void ObjectList::load_mesh_object(const TriangleMesh &mesh, const wxString &name
     Slic3r::save_object_mesh(*new_object);
 
     // BBS: find an empty cell to put the copied object
-    auto start_point = wxGetApp().plater()->build_volume().bounding_volume2d().center();
+    // ORCA_BELT: Use best_object_pos for initial placement (belt → Y=0),
+    // then clamp so the object stays fully within the bed.
+    Vec2d start_point;
+    auto bed_bb = wxGetApp().plater()->build_volume().bounding_volume2d();
+    if (auto* cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionPoint>("best_object_pos")) {
+        start_point = bed_bb.min + Vec2d(bed_bb.size().x() * cfg->value.x(),
+                                         bed_bb.size().y() * cfg->value.y());
+    } else {
+        start_point = bed_bb.center();
+    }
+    // Clamp so centered object stays within bed (half-extent = bb.size/2 after center_around_origin)
+    Vec2d half(bb.size().x() / 2.0, bb.size().y() / 2.0);
+    start_point.x() = std::clamp(start_point.x(), bed_bb.min.x() + half.x(), bed_bb.max.x() - half.x());
+    start_point.y() = std::clamp(start_point.y(), bed_bb.min.y() + half.y(), bed_bb.max.y() - half.y());
     auto empty_cell  = wxGetApp().plater()->canvas3D()->get_nearest_empty_cell({start_point(0), start_point(1)});
 
     new_object->instances[0]->set_offset(center ? to_3d(Vec2d(empty_cell(0), empty_cell(1)), -new_object->origin_translation.z()) : bb.center());
