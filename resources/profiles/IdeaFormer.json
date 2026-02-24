@@ -1,6 +1,6 @@
 {
     "name": "IdeaFormer",
-    "version": "01.00.00.00",
+    "version": "01.04.00.00",
     "force_update": "0",
     "description": "IdeaFormer belt printer configurations",
     "machine_model_list": [
@@ -11,17 +11,41 @@
     ],
     "machine_list": [
         {
+            "name": "fdm_machine_common",
+            "sub_path": "machine/fdm_machine_common.json"
+        },
+        {
+            "name": "fdm_ideaformer_common",
+            "sub_path": "machine/fdm_ideaformer_common.json"
+        },
+        {
             "name": "IdeaFormer IR3 V2 0.4 nozzle",
             "sub_path": "machine/IdeaFormer IR3 V2 0.4 nozzle.json"
         }
     ],
     "process_list": [
         {
+            "name": "fdm_process_common",
+            "sub_path": "process/fdm_process_common.json"
+        },
+        {
             "name": "0.20mm Standard @IdeaFormer IR3 V2",
             "sub_path": "process/0.20mm Standard @IdeaFormer IR3 V2.json"
         }
     ],
     "filament_list": [
+        {
+            "name": "fdm_filament_common",
+            "sub_path": "filament/fdm_filament_common.json"
+        },
+        {
+            "name": "fdm_filament_pla",
+            "sub_path": "filament/fdm_filament_pla.json"
+        },
+        {
+            "name": "fdm_filament_petg",
+            "sub_path": "filament/fdm_filament_petg.json"
+        },
         {
             "name": "Generic PLA @IdeaFormer",
             "sub_path": "filament/Generic PLA @IdeaFormer.json"

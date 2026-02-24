@@ -3009,10 +3009,8 @@ bool PartPlate::set_shape(const Pointfs& shape, const Pointfs& exclude_areas, co
 		m_shape = std::move(new_shape);
 		m_exclude_area = std::move(new_exclude_areas);
 
-#if 0
 		calc_bounding_boxes();
 
-#if 0
 		ExPolygon logo_poly;
 		generate_logo_polygon(logo_poly);
 		m_logo_triangles.reset();
@@ -3031,7 +3029,8 @@ bool PartPlate::set_shape(const Pointfs& shape, const Pointfs& exclude_areas, co
 		ExPolygon exclude_poly;
 		generate_exclude_polygon(exclude_poly);
 		calc_exclude_triangles(exclude_poly);
-    const BoundingBox& pp_bbox = poly.contour.bounding_box();
+
+		const BoundingBox& pp_bbox = poly.contour.bounding_box();
 		calc_gridlines(poly, pp_bbox);
 
 		//calc_vertex_for_icons_background(5, m_del_and_background_icon);
@@ -3053,13 +3052,9 @@ bool PartPlate::set_shape(const Pointfs& shape, const Pointfs& exclude_areas, co
 			// calc vertex for plate name
 			generate_plate_name_texture();
 		}
-#endif
-#endif
 	}
 
-#if 0
 	calc_height_limit();
-#endif
 
 	return true;
 }

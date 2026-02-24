@@ -1,5 +1,6 @@
 {
     "type": "filament",
+    "filament_id": "GFIF02",
     "name": "Generic PETG @IdeaFormer",
     "inherits": "fdm_filament_petg",
     "from": "system",
