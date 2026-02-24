@@ -348,26 +348,30 @@ public:
             t.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), 0, 0));
 
             if (m_model_object) {
-                // 2. Place model ON the belt surface: shift world Y so Y_world_min = 0.
-                //    Without this, centered models (Y ∈ [-h/2, h/2]) are half-buried
-                //    in the belt, causing reversed layer order.
+                // 2. Place model on belt: shift so Y_min=0 (keel on belt) and
+                //    Z_min=0 (model starts at belt entry). Both are needed because
+                //    forward Z_virt = Y+Z: if either is negative, Z_virt_min < 0
+                //    and the first layer's diagonal cuts deep into the model.
                 BoundingBoxf3 world_bbox = m_model_object->raw_mesh_bounding_box().transformed(t);
-                t.pretranslate(Vec3d(0, -world_bbox.min.y(), 0));
+                t.pretranslate(Vec3d(0, -world_bbox.min.y(), -world_bbox.min.z()));
+            }
 
-                // 3. Apply belt forward transform (model → virtual slicing space)
-                Transform3d belt_forward = BeltTransform::make_forward_transform(Geometry::rad2deg(belt_params.angle));
-                t = belt_forward * t;
+            // 3. Apply belt forward transform (model → virtual slicing space)
+            //    Forward: Y_virt = Z_model, Z_virt = Y_model + Z_model
+            //    Slicing at Z_virt = const → Y+Z = const → 45° keel-first
+            Transform3d belt_forward = BeltTransform::make_forward_transform(Geometry::rad2deg(belt_params.angle));
+            t = belt_forward * t;
 
-                // 4. Shift virtual Z so keel front = Z_virt = 0.
-                //    After step 2, Y_world_min = 0 (keel on belt). Keel front:
-                //      keel_z = f_zy × 0 + f_zz × Z_world_min = Z_world_min
-                //    Points with Z_virt < 0 are the 45° overhang (clipped).
-                double keel_z_virt = belt_forward.matrix()(2,2) * world_bbox.min.z();
-                double trafo_z_shift = BeltTransform::get_trafo_z_shift();
-                t.pretranslate(Vec3d(0, 0, -keel_z_virt + trafo_z_shift));
-            } else {
-                Transform3d belt_forward = BeltTransform::make_forward_transform(Geometry::rad2deg(belt_params.angle));
-                t = belt_forward * t;
+            // 4. Optional Z shift in virtual space (from config)
+            double z_shift = BeltTransform::get_trafo_z_shift();
+            t.translate(Vec3d(0, 0, z_shift));
+
+            // 5. Shift Y_virt so Y_virt_min = 0 (belt entry alignment)
+            //    Y_virt = Z_model → this aligns model's Z_min at belt start.
+            //    (Should be ~0 already after step 2, but handles any residual offset.)
+            if (m_model_object) {
+                BoundingBoxf3 virtual_bbox = m_model_object->raw_mesh_bounding_box().transformed(t);
+                t.pretranslate(Vec3d(0, -virtual_bbox.min.y(), 0));
             }
         } else {
             // Standard printer: apply full centering offset

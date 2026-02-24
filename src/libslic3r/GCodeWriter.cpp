@@ -610,11 +610,12 @@ std::string GCodeWriter::eager_lift(const LiftType type) {
     }
 
     // ORCA_BELT: Belt Y-lift — move gantry away from belt surface.
-    // Y_mach = 2*Y_gcode, so add hop/2 to Y_gcode only → Y_mach += hop.
-    // Z_mach = Z_gcode (i_zy=0), so leave Z unchanged → belt stays put.
+    // Y_mach = √2*Y_gcode, so add hop/√2 to Y_gcode → Y_mach += hop.
+    // Z_mach = -Y_gcode + Z_gcode (i_zy=-1), so also add hop/√2 to Z_gcode
+    // to keep belt position constant: Z_mach = -(Y+Δ) + (Z+Δ) = -Y+Z = unchanged.
     if (m_is_belt && target_lift > 0) {
-        double hop_gcode = target_lift / 2.0;
-        Vec3d target(m_pos(0), m_pos(1) + hop_gcode, m_pos(2));
+        double hop_gcode = target_lift / 1.41421356;  // hop / √2
+        Vec3d target(m_pos(0), m_pos(1) + hop_gcode, m_pos(2) + hop_gcode);
         Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
         GCodeG1Formatter w(m_is_belt, m_belt_angle);
         w.emit_xyz(point_on_plate);
@@ -667,12 +668,13 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
         m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed") : this->config.travel_speed.value;
     //BBS: a z_hop need to be handle when travel
     if (std::abs(m_to_lift) > EPSILON) {
-        // ORCA_BELT: Belt Y-lift — add hop/2 to Y of destination only.
-        // Y_mach = 2*Y_gcode → hop/2 in gcode = hop in machine.
-        // Z_mach = Z_gcode (i_zy=0) → belt stays put without Z adjustment.
+        // ORCA_BELT: Belt Y-lift — add hop/√2 to both Y and Z of destination.
+        // Y_mach = √2*Y_gcode → hop/√2 in gcode = hop in machine.
+        // Z_mach = -Y_gcode + Z_gcode (i_zy=-1) → add hop/√2 to both to keep belt stationary.
         if (m_is_belt) {
-            double hop_gcode = m_to_lift / 2.0;
+            double hop_gcode = m_to_lift / 1.41421356;  // hop / √2
             dest_point(1) += hop_gcode;
+            dest_point(2) += hop_gcode;
             m_lifted = m_to_lift;
             m_to_lift = 0.;
         } else {
@@ -1074,10 +1076,10 @@ std::string GCodeWriter::unlift()
     std::string gcode;
     if (m_lifted > 0) {
         if (m_is_belt) {
-            // ORCA_BELT: Belt Y-unlift — subtract hop/2 from Y only.
-            // Y_mach = 2*Y_gcode → gantry descends. Z unchanged → belt stays.
-            double hop_gcode = m_lifted / 2.0;
-            Vec3d target(m_pos(0), m_pos(1) - hop_gcode, m_pos(2));
+            // ORCA_BELT: Belt Y-unlift — subtract hop/√2 from both Y and Z.
+            // Y_mach = √2*Y_gcode → gantry descends. Z_mach = -Y+Z → stays constant.
+            double hop_gcode = m_lifted / 1.41421356;  // hop / √2
+            Vec3d target(m_pos(0), m_pos(1) - hop_gcode, m_pos(2) - hop_gcode);
             Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
             GCodeG1Formatter w(m_is_belt, m_belt_angle);
             w.emit_xyz(point_on_plate);

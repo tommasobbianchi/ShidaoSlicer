@@ -9,36 +9,34 @@
 namespace Slic3r {
 
 // ============================================================================
-// LOCKED TRANSFORM COEFFICIENTS — derived from IdeaFormer IR3 V2 (CoreXY, no
-// firmware belt compensation). Fixed 2026-02-23: old f_zy=+0.707, i_zy=-1.0
-// caused 65° ZY shear on physical prints (belt moved during gantry sweep).
+// LOCKED TRANSFORM COEFFICIENTS — IdeaFormer IR3 V2 (CoreXY, no firmware
+// belt compensation). Restored 2026-02-24: f_zy=-1 gave wrong slicing angle
+// (Z-Y=const instead of Y+Z=const), producing full-height first layers.
 // ============================================================================
 //
 // Forward: model → virtual slicing space
-//   Y_virt = Y_model / √2                 (project height onto gantry axis)
-//   Z_virt = -Y_model + Z_model           (compensates 45° gantry arm depth)
+//   Y_virt = Z_model                       (belt direction maps to virtual Y)
+//   Z_virt = Y_model + Z_model             (keel-first 45° slicing: Y+Z=const)
 //
 // Inverse: virtual gcode → machine coordinates
-//   Y_mach = 2 × Y_gcode                  (gantry travel along 45° incline)
-//   Z_mach = Z_gcode                       (belt position = constant per layer)
+//   Y_mach = √2 × Y_gcode                 (gantry traces cross-section)
+//   Z_mach = -Y_gcode + Z_gcode            (belt position, BUT Z_gcode includes
+//            inclined Z compensation: Z_gcode = layer_z + Y*tan(45°), so
+//            Z_mach = -Y + layer_z + Y = layer_z = constant per layer ✓)
 //
-// Physical geometry proof (f_zy=-1, i_zy=0):
-//   depth_phys = Z_mach + Y_mach/√2 = (-Y+Z) + √2×Y/√2 = Z  ← correct!
-//   height_phys = Y_mach/√2 = √2×Y/√2 = Y                    ← correct!
-// With f_zy=+1: depth = 2Y+Z (sheared). With f_zy=+0.707: depth = 1.707Y+Z (sheared).
-// Only f_zy=-1 gives depth = Z_model (no shear, 90° angles).
+// Slicing proof:
+//   Z_virt = Y + Z = constant per layer → Y+Z = const
+//   Layer 0: Y+Z ≈ 0.28 → only keel tip (Y≈0, Z≈0.28) ✓
+//   Each layer captures progressively more of the model ✓
 //
-// trafo_centered must NOT shift Z_virt: keel (Y=0) is naturally at Z_virt=0.
-// Front face overhang (Z_virt<0) is clipped — inherent 45° belt limitation.
-//
-static constexpr double BELT_F_YY =  0.70710678;   // cos(45°) = 1/√2
-static constexpr double BELT_F_YZ =  0.0;
-static constexpr double BELT_F_ZY = -1.0;           // Z_virt = -Y + Z (depth = Z_model, no shear)
+static constexpr double BELT_F_YY =  0.0;            // Y_virt independent of model Y
+static constexpr double BELT_F_YZ =  1.0;            // Y_virt = Z_model (belt direction)
+static constexpr double BELT_F_ZY =  1.0;            // Z_virt = Y + Z (45° keel-first)
 static constexpr double BELT_F_ZZ =  1.0;
 
-static constexpr double BELT_I_YY =  2.0;           // gantry travel = 2 × Y_gcode
+static constexpr double BELT_I_YY =  1.41421356;     // √2: gantry travel = √2 × Y_gcode
 static constexpr double BELT_I_YZ =  0.0;
-static constexpr double BELT_I_ZY =  0.0;           // Z_mach = Z_gcode (no Y coupling)
+static constexpr double BELT_I_ZY = -1.0;            // Z_mach = -Y_gcode + Z_gcode
 static constexpr double BELT_I_ZZ =  1.0;
 
 // Tunable offsets — these CAN be adjusted via belt_transform.ini

@@ -5286,10 +5286,13 @@ void GCode::apply_print_config(const PrintConfig &print_config)
     m_scaled_resolution = scaled<double>(print_config.resolution.value);
     m_enable_exclude_object = m_config.exclude_object;
 
-    // Initialize belt inclined slicing
-    m_belt_inclined_gcode = m_config.belt_inclined_gcode.value && m_writer.is_belt();
+    // Initialize belt inclined slicing — always active for belt printers.
+    // With i_zy=-1 inverse, inclined Z (Z_gcode = layer_z + Y*tan(θ)) is REQUIRED
+    // to keep Z_mach constant per layer. Without it, belt moves during gantry sweep.
+    m_belt_inclined_gcode = m_writer.is_belt();
     if (m_belt_inclined_gcode) {
-        m_belt_angle_radians = Geometry::deg2rad(m_config.belt_angle.value);
+        double angle = m_config.belt_angle.value;
+        m_belt_angle_radians = (angle > 0.0) ? Geometry::deg2rad(angle) : Geometry::deg2rad(45.0);
     }
 
 #if ORCA_CHECK_GCODE_PLACEHOLDERS
@@ -6099,10 +6102,15 @@ double GCode::calc_max_volumetric_speed(const double layer_height, const double 
 
 double GCode::compute_belt_inclined_z(const Vec2d& point_gcode, double layer_z) const
 {
-    // With i_zy=0, Z_mach = Z_gcode directly. No Y-based compensation needed.
-    // (Old code added Y*tan(θ) to cancel the i_zy=-1 coupling, but that coupling
-    // was the root cause of 65° ZY shear on physical prints.)
-    return layer_z;
+    if (!m_belt_inclined_gcode) {
+        return layer_z;
+    }
+    // Z_gcode = layer_z + Y_gcode * tan(belt_angle)
+    // This compensates the i_zy=-1 coupling in the inverse transform:
+    //   Z_mach = -Y_gcode + Z_gcode = -Y + (layer_z + Y) = layer_z (constant per layer ✓)
+    double tan_angle = std::tan(m_belt_angle_radians);
+    double inclined_z = layer_z + point_gcode.y() * tan_angle;
+    return inclined_z;
 }
 
 std::string GCode::_extrude(const ExtrusionPath &path, std::string description, double speed)
@@ -6137,7 +6145,11 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
         );
         m_need_change_layer_lift_z = false;
         // Orca: ensure Z matches planned layer height
-        if (_last_pos_undefined && !slope_need_z_travel) {
+        // ORCA_BELT: Skip for belt printers — Z is computed per-point as
+        // inclined_z = layer_z + Y*tan(45°). A flat travel_to_z(m_nominal_z) while
+        // the Y-lift is active (m_pos.y has hop added) produces wrong Z_mach through
+        // the inverse transform: Z_mach = -(Y_with_hop) + m_nominal_z → negative.
+        if (_last_pos_undefined && !slope_need_z_travel && !m_belt_inclined_gcode) {
             gcode += this->writer().travel_to_z(m_nominal_z, "ensure Z matches planned layer height", true);
         }
     }
