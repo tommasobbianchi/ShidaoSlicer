@@ -33,6 +33,6 @@
     "machine_max_speed_x": ["500"],
     "machine_max_speed_y": ["500"],
     "machine_max_speed_z": ["20"],
-    "machine_start_gcode": "M140 S90 ; Start Bed heating\\nG4 S150 ; Wait 150s (2.5m) for Bed lead time\\nM104 S240 ; Start Extruder heating\\nM190 S90 ; Wait for Bed\\nM109 S240 ; Wait for Extruder\\nG28 ; home all axes\\nG1 Y0 F3000 ; ensure gantry is at bed contact\\nM82 ; absolute extrusion\\nG92 E0 ; reset extruder\\nG1 E15 F1000 ; prime extruder\\nG1 Z20 E25 F800 ; move belt Z20 (part 1 of L)\\nG1 X250 E50 F2000 ; 250mm prime line on X (part 2 of L)\\nG1 X0 E75 F2000 ; Return to X0 to thicken anchor\\nG92 Z0 ; reset belt position to 0 (Logical 0 starts at physical Z20)\\nG1 Y0.2 ; set nozzle to first layer height\\nG92 E0 ; reset extruder positions",
+    "machine_start_gcode": "M140 S90 ; Start Bed heating\\nG4 S240 ; Wait 240s (4m) for Bed lead time — nozzle was ready 90s too early\\nM104 S240 ; Start Extruder heating\\nM190 S90 ; Wait for Bed\\nM109 S240 ; Wait for Extruder\\nG28 ; home all axes\\nG1 Y0 F3000 ; ensure gantry is at bed contact\\nM82 ; absolute extrusion\\nG92 E0 ; reset extruder\\nG1 E15 F1000 ; prime extruder\\nG1 Z20 E25 F800 ; move belt Z20 (part 1 of L)\\nG1 X250 E50 F2000 ; 250mm prime line on X (part 2 of L)\\nG1 X0 E75 F2000 ; Return to X0 to thicken anchor\\nG92 Z0 ; reset belt position to 0 (Logical 0 starts at physical Z20)\\nG1 Y0.2 ; set nozzle to first layer height\\nG92 E0 ; reset extruder positions",
     "machine_end_gcode": "M104 S0\\nM140 S0\\nG28 X0\\nM84"
 }
