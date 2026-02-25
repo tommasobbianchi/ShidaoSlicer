@@ -348,12 +348,22 @@ public:
             t.pretranslate(Vec3d(- unscale<double>(m_center_offset.x()), 0, 0));
 
             if (m_model_object) {
-                // 2. Place model on belt: shift so Y_min=0 (keel on belt) and
-                //    Z_min=0 (model starts at belt entry). Both are needed because
-                //    forward Z_virt = Y+Z: if either is negative, Z_virt_min < 0
+                // 2. Place model on belt: shift so Y_min=0 and Z_min=0.
+                //    Forward Z_virt = Y+Z: if either is negative, Z_virt_min < 0
                 //    and the first layer's diagonal cuts deep into the model.
                 BoundingBoxf3 world_bbox = m_model_object->raw_mesh_bounding_box().transformed(t);
+                double y_range = world_bbox.max.y() - world_bbox.min.y();
                 t.pretranslate(Vec3d(0, -world_bbox.min.y(), -world_bbox.min.z()));
+
+                // 2b. Flip Y direction for correct belt printing order.
+                //     Without this, model Y_min (front) is the keel (first printed).
+                //     Belt printers print Y_max-first: the back face enters the
+                //     belt first, matching IdeaMaker/CR-30 convention.
+                //     Y_new = y_range - Y_old  (reverses Y, keeps Y ∈ [0, y_range])
+                Transform3d y_flip = Transform3d::Identity();
+                y_flip(1, 1) = -1.0;
+                t = y_flip * t;
+                t.pretranslate(Vec3d(0, y_range, 0));
             }
 
             // 3. Apply belt forward transform (model → virtual slicing space)

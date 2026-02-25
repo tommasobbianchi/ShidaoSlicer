@@ -2384,12 +2384,12 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
     //   Y_mach = √2 × Y_virt          (gantry travel along 45° incline)
     //   Z_mach = Z_virt + offset        (belt position, constant per layer when inclined Z active)
     //
-    // Virtual space (from forward transform [0,1;1,1]):
-    //   Y_virt = Z_model,  Z_virt = Y_model + Z_model
+    // Virtual space (from forward transform [0,1;1,1] with Y-flip):
+    //   Y_virt = Z_model,  Z_virt = (Y_range - Y_model) + Z_model
     //
-    // Inverse (machine → model):
+    // Inverse (machine → model, with Y flip to match trafo_centered):
     //   Z_model = Y_mach / √2          (undo gantry √2 scaling)
-    //   Y_model = Z_mach - Y_mach / √2  (undo forward combine, ignoring constant offsets)
+    //   Y_model = -(Z_mach - Z_model)   (negate to undo belt Y-reversal; y_shift aligns)
     //
     // Belt detection: prefer G-code headers, fall back to active printer preset.
     {
@@ -2418,7 +2418,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                 const float y_mach = p.y();
                 const float z_mach = p.z();
                 p.z() = y_mach * inv_sqrt2;       // Z_model = Y_mach / √2
-                p.y() = z_mach - p.z();            // Y_model = Z_mach - Z_model
+                p.y() = -(z_mach - p.z());         // Y_model flipped to match belt Y-reversal
             };
 
             auto& moves = const_cast<GCodeProcessorResult&>(gcode_result).moves;
