@@ -1,6 +1,6 @@
 {
     "name": "IdeaFormer",
-    "version": "01.04.00.00",
+    "version": "01.05.00.00",
     "force_update": "0",
     "description": "IdeaFormer belt printer configurations",
     "machine_model_list": [
@@ -47,12 +47,28 @@
             "sub_path": "filament/fdm_filament_petg.json"
         },
         {
+            "name": "fdm_filament_abs",
+            "sub_path": "filament/fdm_filament_abs.json"
+        },
+        {
+            "name": "fdm_filament_tpu",
+            "sub_path": "filament/fdm_filament_tpu.json"
+        },
+        {
             "name": "Generic PLA @IdeaFormer",
             "sub_path": "filament/Generic PLA @IdeaFormer.json"
         },
         {
             "name": "Generic PETG @IdeaFormer",
             "sub_path": "filament/Generic PETG @IdeaFormer.json"
+        },
+        {
+            "name": "Generic ABS @IdeaFormer",
+            "sub_path": "filament/Generic ABS @IdeaFormer.json"
+        },
+        {
+            "name": "Generic TPU @IdeaFormer",
+            "sub_path": "filament/Generic TPU @IdeaFormer.json"
         }
     ]
 }
