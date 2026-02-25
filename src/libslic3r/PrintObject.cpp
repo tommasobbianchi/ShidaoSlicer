@@ -3399,17 +3399,26 @@ void PrintObject::update_slicing_parameters()
 
         {
             max_z = this->model_object()->max_z();
-            // ORCA_BELT: For belt printers, compute Z extent from the belt-transformed bbox.
-            // With f_zy=-1: Z_virt = -Y_model + Z_model. The keel front is at Z_virt=0
-            // (set by trafo_centered). Points with Z_virt < 0 are the 45° overhang
-            // (inherent belt limitation, clipped). Only the Z_virt > 0 region is printable.
-            if (belt_params.angle != 0.0) {
-                BoundingBoxf3 bbox = this->model_object()->raw_bounding_box();
-                if (bbox.defined) {
-                    bbox = bbox.transformed(this->trafo_centered());
-                    // Use max Z only — the keel-front is at Z=0 after trafo_centered shift.
-                    // Negative Z region is the 45° overhang, not printable.
-                    max_z = float(std::max(0.0, bbox.max.z()));
+            // ORCA_BELT: For belt printers, compute Z extent in virtual slicing space.
+            //
+            // The belt forward transform [0,1;1,1] maps model (Y,Z) to virtual space:
+            //   Y_virt = Z_model
+            //   Z_virt = Y_model + Z_model  (with Y-flip: Z_virt = (Y_range - Y) + Z)
+            //
+            // Z_virt_max = Y_model_range + Z_model_range (at Y_model=0, Z_model=Z_max
+            // or Y_model=Y_max, Z_model=0; the cross-terms sum to Y_range + Z_range).
+            //
+            // We compute this directly from the mesh bounding box rather than
+            // transforming through trafo_centered(), because the full transform chain
+            // (which includes pretranslate shifts computed from raw_mesh_bounding_box)
+            // applied to raw_bounding_box can produce incorrect AABB results.
+            if (belt_params.angle != 0.0 && m_model_object) {
+                BoundingBoxf3 mesh_bbox = m_model_object->raw_mesh_bounding_box();
+                if (mesh_bbox.defined) {
+                    double y_range = mesh_bbox.max.y() - mesh_bbox.min.y();
+                    double z_range = mesh_bbox.max.z() - mesh_bbox.min.z();
+                    // Z_virt_max = Y_range + Z_range for 45° forward transform [0,1;1,1]
+                    max_z = float(y_range + z_range);
                 }
             }
         }

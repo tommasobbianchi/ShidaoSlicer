@@ -926,6 +926,16 @@ bool GCodeWriter::will_move_z(double z) const
 
 std::string GCodeWriter::extrude_to_xy(const Vec2d &point, double dE, const std::string &comment, bool force_no_extrusion)
 {
+    // ORCA_BELT: When Y changes on a belt printer, update m_pos.z to maintain the
+    // inclined Z invariant:  Z_gcode = m_nominal_z + Y_gcode × tan(belt_angle).
+    // Since m_nominal_z = m_pos.z - m_pos.y × tan(angle), the update is:
+    //   new_Z = old_Z + (new_Y - old_Y) × tan(angle)
+    // Without this, wipe moves (which use extrude_to_xy) at a different Y than
+    // the last extrusion produce wrong Z_mach through the inverse transform.
+    if (m_is_belt && std::abs(point(1) - m_pos(1)) > EPSILON) {
+        double tan_angle = std::tan(Geometry::deg2rad(m_belt_angle));
+        m_pos(2) += (point(1) - m_pos(1)) * tan_angle;
+    }
     m_pos(0) = point(0);
     m_pos(1) = point(1);
     if(std::abs(dE) <= std::numeric_limits<double>::epsilon())

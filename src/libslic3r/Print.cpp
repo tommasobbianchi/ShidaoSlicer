@@ -1273,9 +1273,16 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
     };
 
     // Checks that the print does not exceed the max print height
+    // ORCA_BELT: Skip height check for belt printers — the virtual Z axis represents
+    // belt travel (effectively unlimited), not the physical build height.
+    bool is_belt_printer = this->config().printer_is_belt.value ||
+                           this->config().belt_inclined_gcode.value ||
+                           this->config().printer_structure.value == PrinterStructure::psBelt;
     for (size_t print_object_idx = 0; print_object_idx < m_objects.size(); ++ print_object_idx) {
         const PrintObject &print_object = *m_objects[print_object_idx];
         //FIXME It is quite expensive to generate object layers just to get the print height!
+        if (is_belt_printer)
+            continue; // Belt printers: virtual Z is belt travel, not build height
         if (auto layers = generate_object_layers(print_object.slicing_parameters(), layer_height_profile(print_object_idx), print_object.config().precise_z_height.value);
             !layers.empty()) {
 
