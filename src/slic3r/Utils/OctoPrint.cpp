@@ -526,16 +526,15 @@ bool OctoPrint::upload_inner_with_host(PrintHostUpload upload_data, ProgressFn p
             ? upload_filename.string()
             : (upload_parent_path / upload_filename).string();
 
-        // Step 1: POST /server/job_queue/job — enqueue the file
-        std::string queue_url = make_url("server/job_queue/job");
-        std::string queue_body = "{\"filenames\":[\"" + remote_path + "\"]}";
+        // Step 1: POST /server/job_queue/job?filenames=<file> — enqueue the file
+        // Use query string format (Moonraker accepts both JSON body and query params)
+        std::string queue_url = make_url("server/job_queue/job?filenames=" + Http::url_encode(remote_path));
 
         BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Queueing file %2% at %3%") % name % remote_path % queue_url;
 
         auto http_queue = Http::post(std::move(queue_url));
         set_auth(http_queue);
-        http_queue.header("Content-Type", "application/json")
-            .set_post_body(queue_body)
+        http_queue.set_post_body(std::string("{}"))
             .on_complete([&](std::string body, unsigned status) {
                 BOOST_LOG_TRIVIAL(info) << boost::format("%1%: File queued: HTTP %2%: %3%") % name % status % body;
             })
@@ -553,7 +552,7 @@ bool OctoPrint::upload_inner_with_host(PrintHostUpload upload_data, ProgressFn p
 
             auto http_start = Http::post(std::move(start_url));
             set_auth(http_start);
-            http_start
+            http_start.set_post_body(std::string("{}"))
                 .on_complete([&](std::string body, unsigned status) {
                     BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Queue started: HTTP %2%: %3%") % name % status % body;
                 })
