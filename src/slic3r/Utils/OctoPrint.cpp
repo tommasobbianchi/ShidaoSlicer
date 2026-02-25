@@ -470,13 +470,17 @@ bool OctoPrint::upload_inner_with_host(PrintHostUpload upload_data, ProgressFn p
     }
 #endif // _WIN32
 
-    BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Uploading file %2% at %3%, filename: %4%, path: %5%, print: %6%")
+    bool is_queue = upload_data.post_action == PrintHostPostUploadAction::QueuePrint;
+    bool is_print = upload_data.post_action == PrintHostPostUploadAction::StartPrint;
+
+    BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Uploading file %2% at %3%, filename: %4%, path: %5%, print: %6%, queue: %7%")
         % name
         % upload_data.source_path
         % url
         % upload_filename.string()
         % upload_parent_path.string()
-        % (upload_data.post_action == PrintHostPostUploadAction::StartPrint ? "true" : "false");
+        % (is_print ? "true" : "false")
+        % (is_queue ? "true" : "false");
 
     auto http = Http::post(std::move(url));
 #ifdef WIN32
@@ -490,7 +494,8 @@ bool OctoPrint::upload_inner_with_host(PrintHostUpload upload_data, ProgressFn p
     http.header("Host", host);
 #endif // _WIN32
     set_auth(http);
-    http.form_add("print", upload_data.post_action == PrintHostPostUploadAction::StartPrint ? "true" : "false")
+    // For queue mode, upload without starting print; the queue API handles job scheduling
+    http.form_add("print", is_print ? "true" : "false")
         .form_add("path", upload_parent_path.string())      // XXX: slashes on windows ???
         .form_add_file("file", upload_data.source_path.string(), upload_filename.string())
         .on_complete([&](std::string body, unsigned status) {
@@ -513,6 +518,52 @@ bool OctoPrint::upload_inner_with_host(PrintHostUpload upload_data, ProgressFn p
         .ssl_revoke_best_effort(m_ssl_revoke_best_effort)
 #endif
         .perform_sync();
+
+    // After successful upload, add file to Moonraker's job queue and start it
+    if (res && is_queue) {
+        // Build the remote file path for the queue API
+        std::string remote_path = upload_parent_path.empty()
+            ? upload_filename.string()
+            : (upload_parent_path / upload_filename).string();
+
+        // Step 1: POST /server/job_queue/job — enqueue the file
+        std::string queue_url = make_url("server/job_queue/job");
+        std::string queue_body = "{\"filenames\":[\"" + remote_path + "\"]}";
+
+        BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Queueing file %2% at %3%") % name % remote_path % queue_url;
+
+        auto http_queue = Http::post(std::move(queue_url));
+        set_auth(http_queue);
+        http_queue.header("Content-Type", "application/json")
+            .set_post_body(queue_body)
+            .on_complete([&](std::string body, unsigned status) {
+                BOOST_LOG_TRIVIAL(info) << boost::format("%1%: File queued: HTTP %2%: %3%") % name % status % body;
+            })
+            .on_error([&](std::string body, std::string error, unsigned status) {
+                BOOST_LOG_TRIVIAL(error) << boost::format("%1%: Error queueing file: %2%, HTTP %3%, body: `%4%`") % name % error % status % body;
+                error_fn(format_error(body, error, status));
+                res = false;
+            })
+            .perform_sync();
+
+        // Step 2: POST /server/job_queue/start — start the queue
+        if (res) {
+            std::string start_url = make_url("server/job_queue/start");
+            BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Starting job queue at %2%") % name % start_url;
+
+            auto http_start = Http::post(std::move(start_url));
+            set_auth(http_start);
+            http_start
+                .on_complete([&](std::string body, unsigned status) {
+                    BOOST_LOG_TRIVIAL(info) << boost::format("%1%: Queue started: HTTP %2%: %3%") % name % status % body;
+                })
+                .on_error([&](std::string body, std::string error, unsigned status) {
+                    // Queue start failure is non-fatal — file is already queued
+                    BOOST_LOG_TRIVIAL(warning) << boost::format("%1%: Queue start warning: %2%, HTTP %3%, body: `%4%`") % name % error % status % body;
+                })
+                .perform_sync();
+        }
+    }
 
     return res;
 }

@@ -146,15 +146,15 @@ void PrintHostSendDialog::init()
     });
     txt_filename->SetFocus();
     
-    // if (post_actions.has(PrintHostPostUploadAction::QueuePrint)) {
-    //     auto* btn_print = add_button(wxID_ADD, false, _L("Upload to Queue"));
-    //     btn_print->Bind(wxEVT_BUTTON, [this, validate_path](wxCommandEvent&) {
-    //         if (validate_path(txt_filename->GetValue())) {
-    //             post_upload_action = PrintHostPostUploadAction::QueuePrint;
-    //             EndDialog(wxID_OK);
-    //         }
-    //         });
-    // }
+    if (post_actions.has(PrintHostPostUploadAction::QueuePrint)) {
+        auto* btn_print = add_button(wxID_ADD, false, _L("Upload to Queue"));
+        btn_print->Bind(wxEVT_BUTTON, [this, validate_path](wxCommandEvent&) {
+            if (validate_path(txt_filename->GetValue())) {
+                post_upload_action = PrintHostPostUploadAction::QueuePrint;
+                EndDialog(wxID_OK);
+            }
+        });
+    }
 
     if (post_actions.has(PrintHostPostUploadAction::StartPrint)) {
         auto* btn_print = add_button(wxID_YES, false, _L("Upload and Print"));
