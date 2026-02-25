@@ -78,6 +78,7 @@ void ParamsDialog::Popup()
         dynamic_cast<Tab *>(m_panel->get_current_tab())->set_just_edit(just_edit);
     }
     Show();
+    Raise();
 }
 
 void ParamsDialog::on_dpi_changed(const wxRect &suggested_rect)
