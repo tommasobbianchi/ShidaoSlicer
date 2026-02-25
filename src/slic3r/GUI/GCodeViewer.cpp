@@ -2378,6 +2378,121 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
     if (m_moves_count == 0)
         return;
 
+    // ORCA_BELT: Map G-code (machine) coordinates back to model space for preview.
+    //
+    // G-code contains MACHINE coordinates after BeltTransform::inverse_transform_point():
+    //   Y_mach = √2 × Y_virt          (gantry travel along 45° incline)
+    //   Z_mach = Z_virt + offset        (belt position, constant per layer when inclined Z active)
+    //
+    // Virtual space (from forward transform [0,1;1,1]):
+    //   Y_virt = Z_model,  Z_virt = Y_model + Z_model
+    //
+    // Inverse (machine → model):
+    //   Z_model = Y_mach / √2          (undo gantry √2 scaling)
+    //   Y_model = Z_mach - Y_mach / √2  (undo forward combine, ignoring constant offsets)
+    //
+    // Belt detection: prefer G-code headers, fall back to active printer preset.
+    {
+        bool is_belt = gcode_result.is_belt_printer;
+        double belt_angle = gcode_result.belt_gantry_angle;
+        if (!is_belt) {
+            const auto& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+            if (auto* opt = cfg.option<ConfigOptionBool>("belt_inclined_gcode"))
+                is_belt = opt->value;
+            if (!is_belt) {
+                if (auto* opt = cfg.option<ConfigOptionBool>("printer_is_belt"))
+                    is_belt = opt->value;
+            }
+            if (is_belt && belt_angle <= 0.0) {
+                if (auto* opt = cfg.option<ConfigOptionFloat>("belt_angle"))
+                    belt_angle = opt->value;
+                if (belt_angle <= 0.0)
+                    belt_angle = 45.0;
+            }
+        }
+
+        if (is_belt && belt_angle > 0.0) {
+            const float inv_sqrt2 = 1.0f / std::sqrt(2.0f);
+
+            auto belt_to_model = [inv_sqrt2](Vec3f& p) {
+                const float y_mach = p.y();
+                const float z_mach = p.z();
+                p.z() = y_mach * inv_sqrt2;       // Z_model = Y_mach / √2
+                p.y() = z_mach - p.z();            // Y_model = Z_mach - Z_model
+            };
+
+            auto& moves = const_cast<GCodeProcessorResult&>(gcode_result).moves;
+            for (auto& move : moves) {
+                belt_to_model(move.position);
+                for (auto& pt : move.interpolation_points)
+                    belt_to_model(pt);
+            }
+
+            // Align toolpaths with model shell and clamp non-extrude moves.
+
+            // 1. Compute model-extrude-only Y range (exclude prime line, skirt, brim)
+            auto is_model_extrude = [](const GCodeProcessorResult::MoveVertex& m) {
+                return m.type == EMoveType::Extrude &&
+                       m.extrusion_role != erCustom &&
+                       m.extrusion_role != erSkirt &&
+                       m.extrusion_role != erBrim &&
+                       m.extrusion_role != erNone;
+            };
+            float ext_y_min = std::numeric_limits<float>::max();
+            float ext_y_max = std::numeric_limits<float>::lowest();
+            for (const auto& m : moves) {
+                if (is_model_extrude(m)) {
+                    ext_y_min = std::min(ext_y_min, m.position.y());
+                    ext_y_max = std::max(ext_y_max, m.position.y());
+                }
+            }
+
+            // 2. Get shell Y range from model instances
+            float shell_y_min = std::numeric_limits<float>::max();
+            float shell_y_max = std::numeric_limits<float>::lowest();
+            for (const auto* obj : wxGetApp().model().objects) {
+                for (const auto* inst : obj->instances) {
+                    if (inst->is_printable()) {
+                        BoundingBoxf3 wbb = inst->transform_bounding_box(obj->raw_mesh_bounding_box());
+                        shell_y_min = std::min(shell_y_min, static_cast<float>(wbb.min.y()));
+                        shell_y_max = std::max(shell_y_max, static_cast<float>(wbb.max.y()));
+                    }
+                }
+            }
+
+            float y_shift = 0.0f;
+            if (ext_y_min != std::numeric_limits<float>::max() &&
+                shell_y_min != std::numeric_limits<float>::max()) {
+                y_shift = shell_y_min - ext_y_min;
+            }
+
+            if (std::abs(y_shift) > 0.01f) {
+                for (auto& move : moves) {
+                    move.position.y() += y_shift;
+                    for (auto& pt : move.interpolation_points)
+                        pt.y() += y_shift;
+                }
+                ext_y_min += y_shift;
+                ext_y_max += y_shift;
+            }
+
+            // 3. Clamp all non-model moves (travel, retract, prime line, etc.)
+            //    to model extrude Y range so they don't create visual artifacts.
+            if (ext_y_min != std::numeric_limits<float>::max()) {
+                const float margin = 2.0f;
+                const float clamp_lo = ext_y_min - margin;
+                const float clamp_hi = ext_y_max + margin;
+                for (auto& move : moves) {
+                    if (!is_model_extrude(move)) {
+                        move.position.y() = std::clamp(move.position.y(), clamp_lo, clamp_hi);
+                        for (auto& pt : move.interpolation_points)
+                            pt.y() = std::clamp(pt.y(), clamp_lo, clamp_hi);
+                    }
+                }
+            }
+        }
+    }
+
     m_extruders_count = gcode_result.filaments_count;
 
     unsigned int progress_count = 0;
@@ -3181,6 +3296,9 @@ void GCodeViewer::load_shells(const Print& print, bool initialized, bool force_p
                 v->set_volume_offset(v->get_volume_offset() + offset);
             }
         }
+
+        // ORCA_BELT: Shell stays at bed coordinates.
+        // Toolpath Y alignment is handled in load_toolpaths().
 
         object_count++;
     }
