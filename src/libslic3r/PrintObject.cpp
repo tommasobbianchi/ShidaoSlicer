@@ -4191,6 +4191,24 @@ void PrintObject::_generate_support_material()
                 ExPolygons model_gap = (gap_xy_sc > 0)
                     ? offset_ex(model_here, gap_xy_sc) : model_here;
                 sup = diff_ex(support_slices[li], model_gap);
+
+                // Filter out side-wedge: keep only support fragments that are
+                // between the belt surface (Y_virt ≈ 0) and the model.
+                // After model subtraction, fragments on the "free" side of the
+                // model (above it in Y_virt) are unwanted.
+                if (sup.size() > 1) {
+                    BoundingBox model_bb = get_extents(model_gap);
+                    coord_t model_min_y = model_bb.min.y();
+                    ExPolygons filtered;
+                    for (ExPolygon &ep : sup) {
+                        BoundingBox ep_bb = get_extents(ep);
+                        // Keep if fragment's max_y is at or below model's min_y
+                        // (i.e. fragment is between belt and model)
+                        if (ep_bb.max.y() <= model_min_y + scale_(0.5))
+                            filtered.push_back(std::move(ep));
+                    }
+                    sup = std::move(filtered);
+                }
             }
 
             if (sup.empty())
