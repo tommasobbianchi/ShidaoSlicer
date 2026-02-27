@@ -355,15 +355,14 @@ public:
                 double y_range = world_bbox.max.y() - world_bbox.min.y();
                 t.pretranslate(Vec3d(0, -world_bbox.min.y(), -world_bbox.min.z()));
 
-                // 2b. Flip Y direction for correct belt printing order.
-                //     Without this, model Y_min (front) is the keel (first printed).
-                //     Belt printers print Y_max-first: the back face enters the
-                //     belt first, matching IdeaMaker/CR-30 convention.
-                //     Y_new = y_range - Y_old  (reverses Y, keeps Y ∈ [0, y_range])
-                Transform3d y_flip = Transform3d::Identity();
-                y_flip(1, 1) = -1.0;
-                t = y_flip * t;
-                t.pretranslate(Vec3d(0, y_range, 0));
+                // 2b. Y direction: model Y_min enters the belt first.
+                //     The auto-arrange rotation puts the longest axis along Y.
+                //     For the benchy, Y_min = bow (has keel at z=0) → good
+                //     first-layer adhesion.  A Y-flip would reverse this and
+                //     put the stern first (no keel → empty initial layers,
+                //     first extrusion 6–10 mm above belt surface).
+                //     IdeaMaker also prints keel-first with Y_gcode ≈ 0.33 mm.
+                // NOTE: removed Y-flip that was here previously.
             }
 
             // 3. Apply belt forward transform (model → virtual slicing space)
