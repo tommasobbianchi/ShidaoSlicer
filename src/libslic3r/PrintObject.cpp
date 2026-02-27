@@ -9,6 +9,7 @@
 #include "MutablePolygon.hpp"
 #include "PrintConfig.hpp"
 #include "Support/SupportMaterial.hpp"
+#include "Support/SupportCommon.hpp"
 #include "Support/SupportSpotsGenerator.hpp"
 #include "Support/TreeSupport.hpp"
 #include "Surface.hpp"
@@ -17,8 +18,10 @@
 #include "TriangleMeshSlicer.hpp"
 #include "Utils.hpp"
 #include "Fill/FillAdaptive.hpp"
+#include "Fill/FillBase.hpp"
 #include "Fill/FillLightning.hpp"
 #include "BeltPrinter/MachineProfile.hpp"
+#include "BeltPrinter/BeltSupportMesh.hpp"
 #include "Format/STL.hpp"
 #include "format.hpp"
 #include "AABBTreeLines.hpp"
@@ -749,6 +752,8 @@ void PrintObject::detect_overhangs_for_lift()
                     Layer& layer = *m_layers[layer_id];
                     Layer& lower_layer = *layer.lower_layer;
 
+                    // ORCA_BELT: Overhang detection Y-shift DISABLED — creates false positives
+                    // at the belt-contact edge. Standard detection catches genuine overhangs.
                     ExPolygons overhangs = diff_ex(layer.lslices, offset_ex(lower_layer.lslices, scale_(min_overlap)));
                     layer.loverhangs = std::move(offset2_ex(overhangs, -0.1f * scale_(line_width), 0.1f * scale_(line_width)));
                     layer.loverhangs_bbox = get_extents(layer.loverhangs);
@@ -3986,9 +3991,486 @@ void PrintObject::combine_infill()
     }
 }
 
+// ORCA_BELT: Helper — extrude a 2D polygon into a 3D slab between z_bot and z_top.
+// Appends triangles to the output indexed_triangle_set.
+static void extrude_polygon_to_slab(const Polygon &poly, float z_bot, float z_top,
+                                     indexed_triangle_set &out)
+{
+    if (poly.points.size() < 3) return;
+    int base = (int)out.vertices.size();
+    int n = (int)poly.points.size();
+
+    // Add vertices: bottom ring then top ring.
+    for (int i = 0; i < n; ++i) {
+        float x = unscale<float>(poly.points[i].x());
+        float y = unscale<float>(poly.points[i].y());
+        out.vertices.push_back(Vec3f(x, y, z_bot));  // base + i
+        out.vertices.push_back(Vec3f(x, y, z_top));  // base + n + i
+    }
+    // Note: vertices are interleaved: base+2*i = bottom, base+2*i+1 = top
+    // Let me fix indexing: bottom = base..base+n-1, top = base+n..base+2n-1
+    // Actually let me just push bottom first, then top.
+    // Redo: clear and push sequentially.
+    out.vertices.resize(base); // undo
+    for (int i = 0; i < n; ++i) {
+        float x = unscale<float>(poly.points[i].x());
+        float y = unscale<float>(poly.points[i].y());
+        out.vertices.push_back(Vec3f(x, y, z_bot));
+    }
+    for (int i = 0; i < n; ++i) {
+        float x = unscale<float>(poly.points[i].x());
+        float y = unscale<float>(poly.points[i].y());
+        out.vertices.push_back(Vec3f(x, y, z_top));
+    }
+    // Bottom cap: fan from vertex 0 (winding: CW from below = CCW when viewed from -Z)
+    for (int i = 1; i < n - 1; ++i)
+        out.indices.push_back(Vec3i32(base, base + i + 1, base + i));
+    // Top cap: fan from vertex n (winding: CCW from above)
+    int top = base + n;
+    for (int i = 1; i < n - 1; ++i)
+        out.indices.push_back(Vec3i32(top, top + i, top + i + 1));
+    // Side walls: quads between bottom[i]→bottom[i+1] and top[i]→top[i+1]
+    for (int i = 0; i < n; ++i) {
+        int j = (i + 1) % n;
+        int b0 = base + i, b1 = base + j;
+        int t0 = top + i,  t1 = top + j;
+        out.indices.push_back(Vec3i32(b0, b1, t1));
+        out.indices.push_back(Vec3i32(b0, t1, t0));
+    }
+}
+
 void PrintObject::_generate_support_material()
 {
-    if (is_tree(m_config.support_type.value)) {
+    const bool is_belt = m_print->config().printer_structure.value == psBelt ||
+                         m_print->config().printer_is_belt.value ||
+                         m_print->config().belt_inclined_gcode.value;
+
+    if (is_belt) {
+        // ================================================================
+        // ORCA_BELT: Belt support Option A — Model-Space Support
+        //
+        // Strategy: detect overhangs from mesh face normals in model
+        // space (gravity = [0,0,-1]), project overhang faces to Z=0
+        // as vertical 3D prisms, transform to virtual space, re-slice
+        // at belt layer Z levels, subtract model, and use OrcaSlicer's
+        // Fill infrastructure for proper sparse support patterns.
+        //
+        // Auto-validation: /tmp/belt_support_validation.txt
+        // ================================================================
+        BOOST_LOG_TRIVIAL(info) << "Belt support: Option A (model-space)...";
+
+        const size_t n_layers = m_layers.size();
+        if (n_layers < 2) {
+            BOOST_LOG_TRIVIAL(info) << "Belt support: < 2 layers, skipping.";
+            return;
+        }
+
+        float gap_xy      = float(m_config.support_object_xy_distance.value);
+        coord_t gap_xy_sc = scale_(gap_xy);
+
+        double support_angle_deg = m_config.support_threshold_angle.value;
+        if (support_angle_deg <= 0) support_angle_deg = 50.0;
+        // Overhang threshold: face normal.z < cos(180° - angle)
+        float cos_threshold = float(cos(M_PI - Geometry::deg2rad(support_angle_deg)));
+
+        FILE *vf = fopen("/tmp/belt_support_validation.txt", "w");
+        if (vf) {
+            fprintf(vf, "BELT_SUPPORT_VALIDATION Option_A (model-space)\n");
+            fprintf(vf, "n_layers: %zu  gap_xy: %.2f  support_angle: %.1f  cos_thresh: %.4f\n",
+                    n_layers, gap_xy, support_angle_deg, cos_threshold);
+            fprintf(vf, "layer0_z: %.4f  layerN_z: %.4f\n",
+                    m_layers[0]->print_z, m_layers[n_layers-1]->print_z);
+            fflush(vf);
+        }
+
+        // ============================================================
+        // STEP 1: Overhang detection from face normals (model space)
+        // STEP 2: Transform overhang verts to virtual space
+        // STEP 3: Build prisms projecting to Y_virt=0 (belt surface)
+        // ============================================================
+        indexed_triangle_set model_its = this->model_object()->raw_indexed_triangle_set();
+        Transform3d trafo = this->trafo_centered();
+        indexed_triangle_set support_its;
+        size_t overhang_count = 0;
+
+        for (size_t fi = 0; fi < model_its.indices.size(); ++fi) {
+            const auto &tri = model_its.indices[fi];
+            const Vec3f &v0 = model_its.vertices[tri[0]];
+            const Vec3f &v1 = model_its.vertices[tri[1]];
+            const Vec3f &v2 = model_its.vertices[tri[2]];
+
+            // Check overhang in model space (gravity = [0,0,-1])
+            Vec3f normal = (v1 - v0).cross(v2 - v0).normalized();
+            if (normal.z() >= cos_threshold)
+                continue;  // not an overhang face
+
+            ++overhang_count;
+
+            // Transform overhang vertices to virtual space
+            Vec3f vv0 = (trafo * v0.cast<double>()).cast<float>();
+            Vec3f vv1 = (trafo * v1.cast<double>()).cast<float>();
+            Vec3f vv2 = (trafo * v2.cast<double>()).cast<float>();
+
+            // Project to Y_virt=0 (belt surface), keeping X and Z_virt
+            Vec3f fv0(vv0.x(), 0.0f, vv0.z());
+            Vec3f fv1(vv1.x(), 0.0f, vv1.z());
+            Vec3f fv2(vv2.x(), 0.0f, vv2.z());
+
+            int base = int(support_its.vertices.size());
+            support_its.vertices.insert(support_its.vertices.end(),
+                {vv0, vv1, vv2, fv0, fv1, fv2});
+            // Top cap (overhang face in virtual space)
+            support_its.indices.push_back(Vec3i32(base+0, base+1, base+2));
+            // Bottom cap (belt surface)
+            support_its.indices.push_back(Vec3i32(base+5, base+4, base+3));
+            // 3 side walls (quads as 2 triangles each)
+            support_its.indices.push_back(Vec3i32(base+0, base+3, base+1));
+            support_its.indices.push_back(Vec3i32(base+1, base+3, base+4));
+            support_its.indices.push_back(Vec3i32(base+1, base+4, base+2));
+            support_its.indices.push_back(Vec3i32(base+2, base+4, base+5));
+            support_its.indices.push_back(Vec3i32(base+2, base+5, base+0));
+            support_its.indices.push_back(Vec3i32(base+0, base+5, base+3));
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "Belt support: " << overhang_count
+            << " overhang faces, support mesh: "
+            << support_its.vertices.size() << " verts, "
+            << support_its.indices.size() << " faces";
+
+        if (vf) {
+            fprintf(vf, "overhang_faces: %zu\nsupport_mesh: %zu verts, %zu faces\n",
+                    overhang_count, support_its.vertices.size(), support_its.indices.size());
+            fflush(vf);
+        }
+
+        if (support_its.indices.empty()) {
+            BOOST_LOG_TRIVIAL(info) << "Belt support: no overhang faces -> no support.";
+            if (vf) { fprintf(vf, "RESULT: NO_OVERHANG_FACES\n"); fclose(vf); }
+            return;
+        }
+
+        // Debug: export meshes to STL (support_its already in virtual space)
+        {
+            TriangleMesh sup_mesh(support_its);
+            Slic3r::store_stl("/tmp/belt_support_mesh_optA.stl",
+                              &sup_mesh, true);
+            indexed_triangle_set model_virt = model_its;
+            its_transform(model_virt, trafo);
+            TriangleMesh mod_mesh(model_virt);
+            Slic3r::store_stl("/tmp/belt_model_virtual.stl",
+                              &mod_mesh, true);
+            BOOST_LOG_TRIVIAL(info) << "Belt support: exported meshes to /tmp/";
+        }
+
+        // STEP 4: Slice the support prism mesh at the same Z levels as model layers.
+        //    This is a separate mesh (not the model), already in virtual space.
+        std::vector<float> zs = zs_from_layers(m_layers);
+        MeshSlicingParamsEx slice_params;
+        slice_params.trafo = Transform3d::Identity();
+        slice_params.mode  = MeshSlicingParams::SlicingMode::Positive;
+
+        std::vector<ExPolygons> support_slices = slice_mesh_ex(
+            support_its, zs, slice_params);
+
+        BOOST_LOG_TRIVIAL(info) << "Belt support: sliced at " << zs.size()
+            << " Z levels, got " << support_slices.size() << " slices";
+
+        // 5. Subtract model (with XY gap) and detect interface layers
+        std::vector<ExPolygons> support(n_layers);
+        std::vector<bool>      is_interface(n_layers, false);
+        size_t nonempty_count = 0;
+        for (size_t li = 0; li < n_layers && li < support_slices.size(); ++li) {
+            if (support_slices[li].empty())
+                continue;
+
+            const ExPolygons &model_here = m_layers[li]->lslices;
+            ExPolygons sup;
+            if (model_here.empty()) {
+                sup = std::move(support_slices[li]);
+            } else {
+                ExPolygons model_gap = (gap_xy_sc > 0)
+                    ? offset_ex(model_here, gap_xy_sc) : model_here;
+                sup = diff_ex(support_slices[li], model_gap);
+            }
+
+            if (sup.empty())
+                continue;
+
+            support[li] = std::move(sup);
+            ++nonempty_count;
+
+            // Interface detection: mark top layers where support contacts model above
+            for (size_t look = 1; look <= 3 && li + look < n_layers; ++look) {
+                if (!m_layers[li + look]->lslices.empty() &&
+                    !intersection_ex(support_slices[li], m_layers[li + look]->lslices).empty()) {
+                    is_interface[li] = true;
+                    break;
+                }
+            }
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "Belt support: " << nonempty_count
+            << "/" << n_layers << " layers with support after model subtraction";
+
+        // ---- Validation: per-layer metrics ----
+        size_t sup_count = 0, sup_first = n_layers, sup_last = 0;
+        double area_max = 0, area_first = 0;
+        size_t mod_first = n_layers;  // first non-empty model layer
+        if (vf) fprintf(vf, "\n--- MONOBLOCK SUPPORT ---\n");
+
+        for (size_t li = 0; li < n_layers; ++li) {
+            if (!m_layers[li]->lslices.empty() && li < mod_first)
+                mod_first = li;
+
+            if (support[li].empty()) continue;
+            ++sup_count;
+            if (li < sup_first) sup_first = li;
+            sup_last = li;
+
+            double area = 0;
+            BoundingBox bb;
+            for (const auto &ep : support[li]) {
+                area += unscale<double>(unscale<double>(std::abs(ep.area())));
+                for (const Point &pt : ep.contour.points) bb.merge(pt);
+            }
+            if (li == sup_first) area_first = area;
+            if (area > area_max)  area_max = area;
+
+            double mod_area = 0;
+            BoundingBox mbb;
+            for (const auto &ep : m_layers[li]->lslices) {
+                mod_area += unscale<double>(unscale<double>(std::abs(ep.area())));
+                for (const Point &pt : ep.contour.points) mbb.merge(pt);
+            }
+
+            if (vf) {
+                fprintf(vf, "L%03zu z=%7.3f sup_area=%7.2f mod_area=%7.2f nex=%zu "
+                            "sup_bb=[%6.2f,%6.2f]-[%6.2f,%6.2f] "
+                            "mod_bb=[%6.2f,%6.2f]-[%6.2f,%6.2f]\n",
+                    li, m_layers[li]->print_z, area, mod_area, support[li].size(),
+                    unscale<double>(bb.min.x()), unscale<double>(bb.min.y()),
+                    unscale<double>(bb.max.x()), unscale<double>(bb.max.y()),
+                    m_layers[li]->lslices.empty() ? 0. : unscale<double>(mbb.min.x()),
+                    m_layers[li]->lslices.empty() ? 0. : unscale<double>(mbb.min.y()),
+                    m_layers[li]->lslices.empty() ? 0. : unscale<double>(mbb.max.x()),
+                    m_layers[li]->lslices.empty() ? 0. : unscale<double>(mbb.max.y()));
+            }
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "Belt support P1: " << sup_count << "/" << n_layers
+            << " support layers (model-space Option A)"
+            << " first=" << sup_first << " last=" << sup_last
+            << " mod_first=" << mod_first
+            << " area_first=" << area_first << " area_max=" << area_max;
+
+        // Validation checks
+        double wedge_ratio = (area_max > 0) ? area_first / area_max : 0;
+        bool wedge_ok = wedge_ratio > 0.1;  // relaxed: belt support starts as a column
+        // Belt support starts at the arm (overhang) layer, not at the bottom.
+        // On a belt printer, each layer is on fresh belt surface — no need to
+        // build up support from earlier layers.
+        BOOST_LOG_TRIVIAL(info) << "Belt support V: wedge_ratio=" << wedge_ratio
+            << (wedge_ok ? " PASS" : " FAIL")
+            << " sup_range=[" << sup_first << "," << sup_last << "]"
+            << " mod_first=" << mod_first;
+
+        if (vf) {
+            fprintf(vf, "\n--- VALIDATION ---\n");
+            fprintf(vf, "wedge_ratio: %.3f %s\n", wedge_ratio, wedge_ok ? "PASS" : "FAIL");
+            fprintf(vf, "support_range: L%zu-L%zu (%zu layers)\n",
+                    sup_first, sup_last, sup_count);
+            fflush(vf);
+        }
+
+        if (sup_count == 0) {
+            BOOST_LOG_TRIVIAL(info) << "Belt support: no void detected.";
+            if (vf) { fprintf(vf, "RESULT: NO_VOID\n"); fclose(vf); }
+            return;
+        }
+
+        // ============================================================
+        // PHASE 2 — Create SupportLayers + sparse fill patterns
+        // ============================================================
+        SupportGeneratorLayerStorage layer_storage;
+        SupportGeneratorLayersPtr    belt_base_layers;
+        SupportGeneratorLayersPtr    belt_intf_layers;
+        belt_base_layers.reserve(sup_count);
+
+        for (size_t li = 0; li < n_layers; ++li) {
+            if (support[li].empty()) continue;
+            auto ltype = is_interface[li] ? SupporLayerType::TopContact : SupporLayerType::Base;
+            SupportGeneratorLayer &gl = layer_storage.allocate_unguarded(ltype);
+            gl.print_z  = m_layers[li]->print_z;
+            gl.height   = m_layers[li]->height;
+            gl.bottom_z = gl.print_z - gl.height;
+            gl.polygons = to_polygons(support[li]);
+            if (is_interface[li])
+                belt_intf_layers.push_back(&gl);
+            else
+                belt_base_layers.push_back(&gl);
+        }
+
+        SupportGeneratorLayersPtr empty_layers;
+        generate_support_layers(*this, empty_layers, empty_layers,
+                                belt_intf_layers, belt_base_layers,
+                                empty_layers, empty_layers);
+
+        // Set up fill infrastructure
+        SupportParameters support_params(*this);
+        Flow base_flow = support_params.support_material_flow;
+        Flow intf_flow = support_params.support_material_interface_flow;
+        float base_density = float(support_params.support_density);
+        float intf_density = float(support_params.interface_density);
+
+        // Compute bounding box for fill pattern alignment
+        BoundingBox bbox_object(Point(-scale_(1.), -scale_(1.)),
+                                Point(scale_(1.), scale_(1.)));
+        for (const Layer *layer : m_layers)
+            for (const ExPolygon &ex : layer->lslices)
+                bbox_object.merge(get_extents(ex));
+
+        auto filler_base = std::unique_ptr<Fill>(Fill::new_from_type(ipRectilinear));
+        filler_base->set_bounding_box(bbox_object);
+        filler_base->spacing = base_flow.spacing();
+
+        auto filler_intf = std::unique_ptr<Fill>(Fill::new_from_type(ipRectilinear));
+        filler_intf->set_bounding_box(bbox_object);
+        filler_intf->spacing = intf_flow.spacing();
+
+        // Merge and sort all generator layers for lookup
+        SupportGeneratorLayersPtr all_gen_layers;
+        all_gen_layers.reserve(belt_base_layers.size() + belt_intf_layers.size());
+        all_gen_layers.insert(all_gen_layers.end(), belt_base_layers.begin(), belt_base_layers.end());
+        all_gen_layers.insert(all_gen_layers.end(), belt_intf_layers.begin(), belt_intf_layers.end());
+        std::sort(all_gen_layers.begin(), all_gen_layers.end(),
+            [](const SupportGeneratorLayer *a, const SupportGeneratorLayer *b) {
+                return a->print_z < b->print_z;
+            });
+
+        size_t gl_idx = 0;
+        for (size_t si = 0; si < m_support_layers.size(); ++si) {
+            SupportLayer *sl = m_support_layers[si];
+            if (!sl) continue;
+
+            // Find matching generator layer by print_z
+            SupportGeneratorLayer *gl = nullptr;
+            for (size_t gi = gl_idx; gi < all_gen_layers.size(); ++gi) {
+                if (std::abs(all_gen_layers[gi]->print_z - sl->print_z) < EPSILON) {
+                    gl = all_gen_layers[gi];
+                    gl_idx = gi;
+                    break;
+                }
+            }
+            if (!gl || gl->polygons.empty()) continue;
+
+            bool   is_intf = (gl->layer_type == SupporLayerType::TopContact);
+            Fill  *filler  = is_intf ? filler_intf.get() : filler_base.get();
+            Flow   flow    = (is_intf ? intf_flow : base_flow).with_height(float(gl->height));
+            float  density = is_intf ? intf_density : base_density;
+
+            filler->angle    = is_intf ? 0.f : float(si % 2 == 0 ? M_PI / 4 : -M_PI / 4);
+            filler->layer_id = si;
+            filler->z        = sl->print_z;
+
+            ExPolygons expolys = union_ex(gl->polygons);
+
+            FillParams fill_params;
+            fill_params.density     = density;
+            fill_params.dont_adjust = true;
+
+            for (ExPolygon &expoly : expolys) {
+                Surface surface(stInternal, std::move(expoly));
+                Polylines polylines;
+                try {
+                    polylines = filler->fill_surface(&surface, fill_params);
+                } catch (InfillFailedException &) {}
+
+                extrusion_entities_append_paths(
+                    sl->support_fills.entities,
+                    std::move(polylines),
+                    ExtrusionRole::erSupportMaterial,
+                    flow.mm3_per_mm(), flow.width(), flow.height());
+            }
+
+            if (!sl->support_fills.empty())
+                sl->support_islands = expolys;
+        }
+
+        // ---- Final validation ----
+        size_t layers_with_fills = 0, total_entities = 0;
+        size_t first_fill = m_support_layers.size(), last_fill = 0;
+        for (size_t si = 0; si < m_support_layers.size(); ++si) {
+            const SupportLayer *sl = m_support_layers[si];
+            if (sl && !sl->support_fills.empty()) {
+                ++layers_with_fills;
+                total_entities += sl->support_fills.entities.size();
+                if (si < first_fill) first_fill = si;
+                last_fill = si;
+            }
+        }
+
+        // Dump first + middle + last extrusion paths
+        if (vf) {
+            fprintf(vf, "\n--- EXTRUSION PATHS (sample) ---\n");
+            std::vector<size_t> sample_indices;
+            if (layers_with_fills > 0) {
+                sample_indices.push_back(first_fill);
+                if (layers_with_fills > 2)
+                    sample_indices.push_back(first_fill + (last_fill - first_fill) / 2);
+                if (layers_with_fills > 1)
+                    sample_indices.push_back(last_fill);
+            }
+            for (size_t si : sample_indices) {
+                const SupportLayer *sl = m_support_layers[si];
+                if (!sl || sl->support_fills.empty()) continue;
+                fprintf(vf, "SL%zu z=%.3f entities=%zu\n", si, sl->print_z,
+                        sl->support_fills.entities.size());
+                if (!sl->support_fills.entities.empty()) {
+                    const ExtrusionEntity *ee = sl->support_fills.entities.front();
+                    if (const auto *ep = dynamic_cast<const ExtrusionPath*>(ee)) {
+                        fprintf(vf, "  path[0] pts=%zu:", ep->polyline.points.size());
+                        for (size_t pi = 0; pi < std::min(ep->polyline.points.size(), size_t(8)); ++pi)
+                            fprintf(vf, " (%.2f,%.2f)",
+                                    unscale<double>(ep->polyline.points[pi].x()),
+                                    unscale<double>(ep->polyline.points[pi].y()));
+                        fprintf(vf, "\n");
+                    }
+                }
+            }
+        }
+
+        bool continuity_ok = true;
+        if (layers_with_fills > 1) {
+            size_t prev_fill = first_fill;
+            for (size_t si = first_fill + 1; si <= last_fill; ++si) {
+                if (m_support_layers[si] && !m_support_layers[si]->support_fills.empty()) {
+                    if (si - prev_fill > 3) { continuity_ok = false; break; }
+                    prev_fill = si;
+                }
+            }
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "Belt support DONE: " << layers_with_fills
+            << "/" << m_support_layers.size() << " layers with fills"
+            << ", entities=" << total_entities
+            << ", continuity=" << (continuity_ok ? "PASS" : "FAIL")
+            << ", wedge=" << (wedge_ok ? "PASS" : "FAIL");
+
+        if (vf) {
+            fprintf(vf, "\n--- SUMMARY ---\n");
+            fprintf(vf, "support_layers: %zu\n", m_support_layers.size());
+            fprintf(vf, "layers_with_fills: %zu (first=%zu last=%zu)\n",
+                    layers_with_fills, first_fill, last_fill);
+            fprintf(vf, "total_entities: %zu\n", total_entities);
+            fprintf(vf, "continuity: %s\n", continuity_ok ? "PASS" : "FAIL");
+            fprintf(vf, "wedge: %s (ratio=%.3f)\n", wedge_ok ? "PASS" : "FAIL", wedge_ratio);
+            fprintf(vf, "RESULT: %s\n",
+                    (layers_with_fills > 0 && wedge_ok && continuity_ok) ? "OK" : "ISSUES_DETECTED");
+            fclose(vf);
+        }
+        BOOST_LOG_TRIVIAL(info) << "Belt support: validation → /tmp/belt_support_validation.txt";
+    }
+    else if (is_tree(m_config.support_type.value)) {
         TreeSupport tree_support(*this, m_slicing_params);
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
         tree_support.generate();
