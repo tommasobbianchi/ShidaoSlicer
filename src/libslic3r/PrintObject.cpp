@@ -3428,6 +3428,9 @@ void PrintObject::update_slicing_parameters()
             m_slicing_params.first_print_layer_height  *= scale;
             m_slicing_params.first_object_layer_height *= scale;
             m_slicing_params.max_layer_height          *= scale;
+            m_slicing_params.gap_support_object        *= scale;
+            m_slicing_params.gap_object_support        *= scale;
+            m_slicing_params.gap_raft_object           *= scale;
         }
     }
 }

@@ -39,6 +39,7 @@
 #include <array>
 #include <algorithm>
 #include <chrono>
+#include <map>
 
 namespace Slic3r {
 namespace GUI {
@@ -2380,16 +2381,10 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
 
     // ORCA_BELT: Map G-code (machine) coordinates back to model space for preview.
     //
-    // G-code contains MACHINE coordinates after BeltTransform::inverse_transform_point():
-    //   Y_mach = √2 × Y_virt          (gantry travel along 45° incline)
-    //   Z_mach = Z_virt + offset        (belt position, constant per layer when inclined Z active)
-    //
-    // Virtual space (from forward transform [0,1;1,1] with Y-flip):
-    //   Y_virt = Z_model,  Z_virt = (Y_range - Y_model) + Z_model
-    //
-    // Inverse (machine → model, with Y flip to match trafo_centered):
-    //   Z_model = Y_mach / √2          (undo gantry √2 scaling)
-    //   Y_model = -(Z_mach - Z_model)   (negate to undo belt Y-reversal; y_shift aligns)
+    // Forward transform (trafo_centered, no Y-flip):
+    //   Y_virt = Z_model,  Z_virt = Y_model + Z_model
+    // Inverse (inclined Z): Y_gcode = √2 × Y_virt, Z_gcode = layer_z + Y_virt
+    // Recovery:  Z_model = Y_gcode / √2,  Y_model = Z_gcode - 2 × Z_model
     //
     // Belt detection: prefer G-code headers, fall back to active printer preset.
     {
@@ -2417,27 +2412,68 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
             auto belt_to_model = [inv_sqrt2](Vec3f& p) {
                 const float y_mach = p.y();
                 const float z_mach = p.z();
-                p.z() = y_mach * inv_sqrt2;       // Z_model = Y_mach / √2
-                p.y() = -(z_mach - p.z());         // Y_model flipped to match belt Y-reversal
+                p.z() = y_mach * inv_sqrt2;       // Z_model = Y_gcode / √2
+                p.y() = z_mach - 2.0f * p.z();    // Y_model = Z_gcode - 2 × Z_model
             };
 
             auto& moves = const_cast<GCodeProcessorResult&>(gcode_result).moves;
+
+            // Save layer keys before transform: Z_mach is constant per layer
+            // (belt gcode uses separated Z/XY: Z set once at layer change, XY for moves)
+            std::vector<float> layer_keys(moves.size());
+            for (size_t i = 0; i < moves.size(); ++i)
+                layer_keys[i] = moves[i].position.z();
+
+            // Apply belt_to_model transform
             for (auto& move : moves) {
                 belt_to_model(move.position);
                 for (auto& pt : move.interpolation_points)
                     belt_to_model(pt);
             }
 
-            // Align toolpaths with model shell and clamp non-extrude moves.
+            // Layer-coherent Z quantization: snap all moves in the same layer
+            // to a single Z_model value so the preview layer slider works.
+            // Without this, support (near belt, low Y_mach) and model (high Y_mach)
+            // get different Z_model values, splitting the same layer in the viewer.
 
-            // 1. Compute model-extrude-only Y range (exclude prime line, skirt, brim)
+            // is_model_extrude: excludes support so support Y/Z don't skew alignment
             auto is_model_extrude = [](const GCodeProcessorResult::MoveVertex& m) {
                 return m.type == EMoveType::Extrude &&
                        m.extrusion_role != erCustom &&
                        m.extrusion_role != erSkirt &&
                        m.extrusion_role != erBrim &&
-                       m.extrusion_role != erNone;
+                       m.extrusion_role != erNone &&
+                       m.extrusion_role != erSupportMaterial &&
+                       m.extrusion_role != erSupportMaterialInterface;
             };
+
+            // Build map: layer_key → representative Z_model (avg of model extrusions)
+            auto key_fn = [](float lk) -> int { return int(std::round(lk * 100.0f)); };
+            std::map<int, std::pair<double, int>> z_rep_map;  // key → (sum_z, count)
+            for (size_t i = 0; i < moves.size(); ++i) {
+                if (is_model_extrude(moves[i])) {
+                    int key = key_fn(layer_keys[i]);
+                    auto& entry = z_rep_map[key];
+                    entry.first += double(moves[i].position.z());
+                    entry.second++;
+                }
+            }
+
+            // Snap all moves to representative Z for their layer
+            for (size_t i = 0; i < moves.size(); ++i) {
+                int key = key_fn(layer_keys[i]);
+                auto it = z_rep_map.find(key);
+                if (it != z_rep_map.end() && it->second.second > 0) {
+                    float rep_z = float(it->second.first / it->second.second);
+                    moves[i].position.z() = rep_z;
+                    for (auto& pt : moves[i].interpolation_points)
+                        pt.z() = rep_z;
+                }
+            }
+
+            // Align toolpaths with model shell and clamp non-extrude moves.
+
+            // 1. Compute model-extrude-only Y range (excludes support, skirt, brim)
             float ext_y_min = std::numeric_limits<float>::max();
             float ext_y_max = std::numeric_limits<float>::lowest();
             for (const auto& m : moves) {
