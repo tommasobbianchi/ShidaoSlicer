@@ -18,6 +18,9 @@
 #include "Utils.hpp"
 #include "Fill/FillAdaptive.hpp"
 #include "Fill/FillLightning.hpp"
+#include "Fill/FillBase.hpp"
+#include "ExtrusionEntity.hpp"
+#include "Support/SupportParameters.hpp"
 #include "BeltPrinter/MachineProfile.hpp"
 #include "Format/STL.hpp"
 #include "format.hpp"
@@ -3982,6 +3985,14 @@ void PrintObject::combine_infill()
 
 void PrintObject::_generate_support_material()
 {
+    BeltSlicingParams belt_params = this->get_belt_slicing_params();
+    if (belt_params.angle != 0.0) {
+        // ORCA_BELT: Belt printer support generation — model-space Cartesian columns,
+        // user-driven settings (threshold angle, density, z-gap, xy-gap, interface layers).
+        _generate_belt_support_material(belt_params);
+        return;
+    }
+
     if (is_tree(m_config.support_type.value)) {
         TreeSupport tree_support(*this, m_slicing_params);
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
@@ -3991,6 +4002,248 @@ void PrintObject::_generate_support_material()
         PrintObjectSupportMaterial support_material(this, m_slicing_params);
         support_material.generate(*this);
     }
+}
+
+// ORCA_BELT: Belt-printer support generation.
+//
+// Standard support works in virtual (slicing) space and detects overhangs by comparing
+// successive cross-sections.  For belt printers that is wrong: the slicing direction is
+// Z_virt = Y + Z (45° keel-first), so the standard algorithm produces "side wedge" support
+// along the Y direction rather than columns under truly downward-facing model surfaces.
+//
+// Strategy: generate support columns in MODEL (world) space, just like support_preprocess.py:
+//   1. Detect faces with world-space normal · [0,0,-1] ≥ cos(90°-threshold) and min_z > floor_z
+//   2. Project each overhang face straight down to Z = z_floor (small offset from 0)
+//   3. Apply Z gap:  lower the prism roof by support_top_z_distance
+//   4. Slice the support mesh via trafo_centered() at the same virtual-Z levels as the model
+//   5. Subtract (expanded) model cross-sections to leave XY gap
+//   6. Interface detection: top N layers where support contacts the model
+//   7. Fill base layers with support_base_pattern at support density
+//      Fill interface layers with support_interface_pattern at interface density
+//   8. Emit SupportLayer objects so the rest of the pipeline (G-code, preview) can see them
+void PrintObject::_generate_belt_support_material(const BeltSlicingParams & /*belt_params*/)
+{
+    // ── Config ────────────────────────────────────────────────────────────────
+    const double threshold_deg   = m_config.support_threshold_angle.value;     // e.g. 50°
+    const double z_gap_top       = m_config.support_top_z_distance.value;      // e.g. 0.2 mm
+    const double xy_gap          = std::max(0.0, m_config.support_object_xy_distance.value); // e.g. 0.35
+    const int    n_interface     = m_config.support_interface_top_layers.value;
+    const float  floor_z         = (float)(m_slicing_params.first_print_layer_height * 0.5);
+    const double cos_thresh      = std::cos((90.0 - threshold_deg) * M_PI / 180.0);
+
+    // ── Build pre-belt world transform (trafo_centered minus belt_forward) ───
+    // This places the model with Y_min=0, Z_min=0 but NO 45° shear.
+    // Support prisms built here get the same Y/Z origin as the sliced model.
+    Transform3d world_trafo = this->trafo();
+    world_trafo.pretranslate(Vec3d(-unscale<double>(m_center_offset.x()), 0, 0));
+    if (m_model_object) {
+        BoundingBoxf3 wb = m_model_object->raw_mesh_bounding_box().transformed(world_trafo);
+        world_trafo.pretranslate(Vec3d(0, -wb.min.y(), -wb.min.z()));
+    }
+
+    // ── Collect and transform all model-part meshes to world space ────────────
+    indexed_triangle_set model_its;
+    for (const ModelVolume *vol : m_model_object->volumes) {
+        if (!vol->is_model_part()) continue;
+        Transform3d vol_trafo = world_trafo * vol->get_matrix();
+        // Transform vertices manually (same pattern as BeltSupportMesh.cpp)
+        indexed_triangle_set vol_its = vol->mesh().its;
+        for (Vec3f &v : vol_its.vertices) {
+            Vec3d vd = vol_trafo * v.cast<double>();
+            v = vd.cast<float>();
+        }
+        its_merge(model_its, std::move(vol_its));
+    }
+
+    if (model_its.indices.empty())
+        return;
+
+    // ── Overhang detection in world space (gravity = -Z) ─────────────────────
+    const Vec3f gravity(0.f, 0.f, -1.f);
+    std::vector<bool> is_overhang(model_its.indices.size(), false);
+    size_t n_overhang = 0;
+    for (size_t fi = 0; fi < model_its.indices.size(); ++fi) {
+        const auto &face = model_its.indices[fi];
+        const Vec3f &v0 = model_its.vertices[face[0]];
+        const Vec3f &v1 = model_its.vertices[face[1]];
+        const Vec3f &v2 = model_its.vertices[face[2]];
+        Vec3f n = (v1 - v0).cross(v2 - v0);
+        float len = n.norm();
+        if (len < 1e-12f) continue;
+        n /= len;
+        float min_z = std::min({v0.z(), v1.z(), v2.z()});
+        if (n.dot(gravity) >= float(cos_thresh) && min_z > floor_z) {
+            is_overhang[fi] = true;
+            ++n_overhang;
+        }
+    }
+    BOOST_LOG_TRIVIAL(info) << "ORCA_BELT belt support: "
+        << n_overhang << " overhang faces / " << model_its.indices.size()
+        << " total  (threshold=" << threshold_deg << "°)";
+    if (n_overhang == 0) return;
+
+    // ── Build support mesh: prisms from overhang faces down to Z = floor_z ───
+    // The prism roof is lowered by z_gap_top to create clearance from the model.
+    // XY gap is applied later by expanding the model cross-sections before subtraction.
+    indexed_triangle_set supp_its;
+    supp_its.vertices.reserve(n_overhang * 6);
+    supp_its.indices.reserve(n_overhang * 8);
+
+    for (size_t fi = 0; fi < model_its.indices.size(); ++fi) {
+        if (!is_overhang[fi]) continue;
+        const auto &face = model_its.indices[fi];
+        // Roof: lower by z_gap_top to leave clearance
+        Vec3f r0 = model_its.vertices[face[0]]; r0.z() -= float(z_gap_top);
+        Vec3f r1 = model_its.vertices[face[1]]; r1.z() -= float(z_gap_top);
+        Vec3f r2 = model_its.vertices[face[2]]; r2.z() -= float(z_gap_top);
+        // Skip degenerate (roof entirely below floor after gap)
+        if (r0.z() <= floor_z && r1.z() <= floor_z && r2.z() <= floor_z) continue;
+        // Clamp roof to floor
+        r0.z() = std::max(r0.z(), floor_z);
+        r1.z() = std::max(r1.z(), floor_z);
+        r2.z() = std::max(r2.z(), floor_z);
+        // Floor: same XY, Z = floor_z
+        Vec3f f0(r0.x(), r0.y(), floor_z);
+        Vec3f f1(r1.x(), r1.y(), floor_z);
+        Vec3f f2(r2.x(), r2.y(), floor_z);
+        int base = (int)supp_its.vertices.size();
+        supp_its.vertices.push_back(r0); supp_its.vertices.push_back(r1);
+        supp_its.vertices.push_back(r2); supp_its.vertices.push_back(f0);
+        supp_its.vertices.push_back(f1); supp_its.vertices.push_back(f2);
+        // Roof (same winding → outward normal faces up)
+        supp_its.indices.push_back(Vec3i32(base+0, base+1, base+2));
+        // Floor (reversed winding → outward normal faces down)
+        supp_its.indices.push_back(Vec3i32(base+3, base+5, base+4));
+        // Side walls (3 quads → 6 triangles)
+        supp_its.indices.push_back(Vec3i32(base+0, base+1, base+4));
+        supp_its.indices.push_back(Vec3i32(base+0, base+4, base+3));
+        supp_its.indices.push_back(Vec3i32(base+1, base+2, base+5));
+        supp_its.indices.push_back(Vec3i32(base+1, base+5, base+4));
+        supp_its.indices.push_back(Vec3i32(base+2, base+0, base+3));
+        supp_its.indices.push_back(Vec3i32(base+2, base+3, base+5));
+    }
+
+    if (supp_its.indices.empty()) return;
+
+    // ── Slice support mesh in belt-virtual space ──────────────────────────────
+    // Use trafo_centered() (same transform the model was sliced with) so the support
+    // cross-sections align precisely with the model cross-sections.
+    std::vector<float> zs = zs_from_layers(m_layers);
+    if (zs.empty()) return;
+
+    MeshSlicingParamsEx slice_params;
+    slice_params.trafo = this->trafo_centered();
+
+    auto supp_slices = slice_mesh_ex(supp_its, zs, slice_params,
+                                     [this]() { this->throw_if_canceled(); });
+
+    // ── Subtract model cross-sections (+ XY gap) ─────────────────────────────
+    const coord_t scaled_xy_gap = scale_(xy_gap);
+    for (size_t li = 0; li < m_layers.size() && li < supp_slices.size(); ++li) {
+        if (supp_slices[li].empty()) continue;
+        const ExPolygons &model_slices = m_layers[li]->lslices;
+        if (!model_slices.empty()) {
+            ExPolygons model_expanded = offset_ex(model_slices, float(scaled_xy_gap));
+            supp_slices[li] = diff_ex(supp_slices[li], model_expanded);
+        }
+    }
+
+    // ── Interface layer detection ─────────────────────────────────────────────
+    // Collect model-layer indices that have non-empty support, in order.
+    // The last n_interface of them are interface layers (top of support column).
+    std::vector<size_t> support_layer_indices;
+    support_layer_indices.reserve(64);
+    for (size_t li = 0; li < m_layers.size() && li < supp_slices.size(); ++li)
+        if (!supp_slices[li].empty()) support_layer_indices.push_back(li);
+
+    std::vector<bool> is_interface(m_layers.size(), false);
+    if (n_interface > 0 && !support_layer_indices.empty()) {
+        size_t n = support_layer_indices.size();
+        size_t iface_start = (n > (size_t)n_interface) ? (n - (size_t)n_interface) : 0;
+        for (size_t i = iface_start; i < n; ++i)
+            is_interface[support_layer_indices[i]] = true;
+    }
+
+    // ── Fill support regions and create SupportLayer objects ─────────────────
+    // Map user support pattern to Fill type
+    auto support_pattern_to_fill_type = [](SupportMaterialPattern p) -> InfillPattern {
+        switch (p) {
+            case smpRectilinearGrid: return ipGrid;
+            case smpHoneycomb:       return ipHoneycomb;
+            default:                 return ipRectilinear;
+        }
+    };
+    auto interface_pattern_to_fill_type = [](SupportMaterialInterfacePattern p) -> InfillPattern {
+        switch (p) {
+            case smipConcentric:            return ipConcentric;
+            case smipGrid:                  return ipGrid;
+            case smipRectilinearInterlaced: return ipRectilinear;
+            default:                        return ipRectilinear;
+        }
+    };
+
+    InfillPattern base_fill_type = support_pattern_to_fill_type(
+        (SupportMaterialPattern)m_config.support_base_pattern.value);
+    InfillPattern interface_fill_type = interface_pattern_to_fill_type(
+        (SupportMaterialInterfacePattern)m_config.support_interface_pattern.value);
+
+    SupportParameters support_params(*this);
+    const Flow &base_flow      = support_params.support_material_flow;
+    const Flow &iface_flow     = support_params.support_material_interface_flow;
+    const float base_density   = float(support_params.support_density);
+    const float iface_density  = float(support_params.interface_density);
+
+    std::unique_ptr<Fill> filler_base(Fill::new_from_type(base_fill_type));
+    std::unique_ptr<Fill> filler_iface(Fill::new_from_type(interface_fill_type));
+
+    FillParams fill_params_base, fill_params_iface;
+    fill_params_base.density      = base_density;
+    fill_params_base.dont_adjust  = true;
+    fill_params_iface.density     = iface_density;
+    fill_params_iface.dont_adjust = true;
+
+    size_t support_layer_id = 0;
+    for (size_t li = 0; li < m_layers.size() && li < supp_slices.size(); ++li) {
+        if (supp_slices[li].empty()) continue;
+
+        const Layer *model_layer = m_layers[li];
+        SupportLayer *sl = this->add_support_layer(
+            (int)support_layer_id++,
+            is_interface[li] ? 1 : 0,
+            model_layer->height,
+            model_layer->print_z);
+
+        Fill *filler       = is_interface[li] ? filler_iface.get() : filler_base.get();
+        FillParams &fp     = is_interface[li] ? fill_params_iface : fill_params_base;
+        const Flow &flow   = is_interface[li] ? iface_flow : base_flow;
+
+        filler->layer_id = (unsigned int)li;
+        filler->z        = model_layer->print_z;
+        filler->spacing  = flow.spacing();
+        filler->angle    = float(is_interface[li] ? 0.0 : 45.0 * M_PI / 180.0);
+        filler->link_max_length = scale_(3);
+
+        for (const ExPolygon &expoly : supp_slices[li]) {
+            Surface surface(stInternal, expoly);
+            try {
+                Polylines polylines = filler->fill_surface(&surface, fp);
+                extrusion_entities_append_paths(
+                    sl->support_fills.entities,
+                    std::move(polylines),
+                    is_interface[li] ? erSupportMaterialInterface : erSupportMaterial,
+                    flow.mm3_per_mm(), flow.width(), flow.height());
+            } catch (const std::exception &ex) {
+                BOOST_LOG_TRIVIAL(warning) << "ORCA_BELT belt support fill failed at layer "
+                    << li << ": " << ex.what();
+            }
+        }
+    }
+
+    size_t n_interface_layers = 0;
+    for (size_t li = 0; li < m_layers.size() && li < supp_slices.size(); ++li)
+        if (!supp_slices[li].empty() && is_interface[li]) ++n_interface_layers;
+    BOOST_LOG_TRIVIAL(info) << "ORCA_BELT belt support: created " << support_layer_id
+        << " support layers (" << n_interface_layers << " interface)";
 }
 
 // BBS
