@@ -1704,12 +1704,21 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         if (print_object_regions == nullptr || model_object_status.print_object_regions_status != ModelObjectStatus::PrintObjectRegionsStatus::Valid) {
             // Layer ranges with their associated configurations. Remove overlaps between the ranges
             // and create the regions from scratch.
+            // ORCA_BELT: For belt printers, volume bounding boxes must be computed in virtual
+            // (belt-forward) space because slicing planes z are in virtual space.
+            // With the raw instance trafo, bbox.max.z = Z_model_max (world space), but slicing
+            // planes reach z_virt = Y_model_max + Z_model_max. Any layer with z_virt > Z_model_max
+            // would fail the bbox check in slices_to_regions and produce empty layers.
+            // Using trafo_centered() gives a virtual-space bbox where bbox.max.z = Z_virt_max.
+            Transform3d bbox_trafo = model_object_status.print_instances.front().trafo;
+            if (print_object.get_belt_slicing_params().angle != 0.0)
+                bbox_trafo = print_object.trafo_centered();
             print_object_regions = generate_print_object_regions(
                 print_object_regions,
                 print_object.model_object()->volumes,
                 LayerRanges(print_object.model_object()->layer_config_ranges),
                 m_default_region_config,
-                model_object_status.print_instances.front().trafo,
+                bbox_trafo,
                 num_extruders ,
                 print_object.is_mm_painted() ? 0.f : float(print_object.config().xy_contour_compensation.value),
                 painting_extruders,
