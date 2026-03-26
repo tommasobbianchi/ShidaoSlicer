@@ -17,5 +17,9 @@
         "250x2000",
         "0x2000"
     ],
-    "printable_height": "250"
+    "printable_height": "250",
+    "thumbnails": [
+        "48x48/PNG",
+        "300x300/PNG"
+    ]
 }
