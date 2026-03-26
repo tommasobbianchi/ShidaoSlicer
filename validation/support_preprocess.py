@@ -458,6 +458,71 @@ def create_support_prisms(mesh, mask, xy_gap=0.35, floor_z=0.1):
     return support
 
 
+# ── Support Wedge Split ───────────────────────────────────────────────────────
+
+def split_support_wedge(support_local, wedge_height):
+    """
+    Split support_local into a solid base wedge (bottom) and main body (rest).
+
+    wedge_height: Z height in local space for the base (≈ N_layers * layer_height * √2).
+
+    Returns (support_wedge, support_main).
+      - support_wedge: bottom portion with 100% infill → roots support to the belt.
+      - support_main:  rest with sparse infill.
+
+    If the support is shorter than wedge_height, the whole support becomes the
+    wedge and support_main is None.
+    """
+    z_bot = float(support_local.bounds[0, 2])
+    z_top = float(support_local.bounds[1, 2])
+    z_split = z_bot + wedge_height
+
+    if z_split >= z_top - 0.1:
+        print(f"\nSupport wedge: entire support within wedge height ({z_bot:.2f}→{z_top:.2f}), "
+              f"all solid infill.")
+        return support_local, None
+
+    # Bounding box for the wedge region (same XY as support)
+    cx = (support_local.bounds[0, 0] + support_local.bounds[1, 0]) / 2
+    cy = (support_local.bounds[0, 1] + support_local.bounds[1, 1]) / 2
+    dx = support_local.bounds[1, 0] - support_local.bounds[0, 0] + 2.0  # wider than support
+    dy = support_local.bounds[1, 1] - support_local.bounds[0, 1] + 2.0
+    wedge_dz = z_split - z_bot
+
+    wedge_clip_box = trimesh.creation.box(
+        extents=[dx, dy, wedge_dz + 0.01],
+        transform=trimesh.transformations.translation_matrix(
+            [cx, cy, z_bot + wedge_dz / 2]
+        )
+    )
+
+    try:
+        support_wedge = trimesh.boolean.intersection(
+            [support_local, wedge_clip_box], engine="manifold"
+        )
+        support_main = trimesh.boolean.difference(
+            [support_local, wedge_clip_box], engine="manifold"
+        )
+    except Exception as e:
+        print(f"  Warning: wedge boolean failed ({e}) — no wedge split, using solid infill for whole support")
+        return support_local, None
+
+    if support_wedge is None or support_wedge.is_empty:
+        print("  Warning: wedge intersection empty — no wedge base")
+        return None, support_local
+
+    if support_main is None or support_main.is_empty:
+        print("  Note: support entirely within wedge height → all solid infill")
+        return support_wedge, None
+
+    print(f"\nSupport wedge split:")
+    print(f"  Wedge (solid base):  Z[{z_bot:.2f}, {z_split:.2f}] = {wedge_dz:.2f}mm  "
+          f"vol={support_wedge.volume:.1f}mm³")
+    print(f"  Main (sparse):       Z[{z_split:.2f}, {z_top:.2f}]  "
+          f"vol={support_main.volume:.1f}mm³")
+    return support_wedge, support_main
+
+
 # ── Boolean Helpers ───────────────────────────────────────────────────────────
 
 def _make_solid(mesh):
@@ -572,13 +637,15 @@ def _mesh_to_xml_body(mesh, object_id):
 
 
 def export_3mf_two_volumes(source_3mf, support_local, output_path,
-                           infill_density="10%"):
+                           infill_density="25%", support_wedge_local=None):
     """
     Embed support into source_3mf and patch print settings for belt safety.
 
     Volumes in the output composite object:
-      - Part 1 (model):   normal walls + infill; top_shell_layers from original 3MF
-      - Part 2 (support): wall_loops=0, no shells, sparse infill, top_shell_layers=0
+      - Part 1 (model):        normal walls + infill
+      - Part 3 (support):      wall_loops=0, no shells, sparse infill
+      - Part 4 (support wedge, optional): 100% solid infill, no walls/shells
+                               → roots support to belt, easy to detach
 
     All volumes share the same item transform → same belt pipeline.
 
@@ -589,6 +656,9 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
     SUPPORT_OBJ_ID = 3
     SUPPORT_OBJ_FILE = "3D/Objects/support_part.model"
     SUPPORT_REL_ID = "rel-support"
+    WEDGE_OBJ_ID = 4
+    WEDGE_OBJ_FILE = "3D/Objects/support_wedge.model"
+    WEDGE_REL_ID = "rel-support-wedge"
 
     with zipfile.ZipFile(source_3mf) as zin:
         files = {name: zin.read(name) for name in zin.namelist()}
@@ -600,20 +670,29 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         raise ValueError("No composite object with <components> in 3dmodel.model")
     composite_id = int(m.group(1))
 
-    # ── 2. Inject support component ───────────────────────────────────────
+    # ── 2. Inject support component(s) ────────────────────────────────────
     support_component = (
         f'    <component p:path="/{SUPPORT_OBJ_FILE}" '
         f'objectid="{SUPPORT_OBJ_ID}" '
         f'p:UUID="{uuid.uuid4()}" '
         f'transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
     )
+    extra_components = support_component
+    if support_wedge_local is not None:
+        wedge_component = (
+            f'    <component p:path="/{WEDGE_OBJ_FILE}" '
+            f'objectid="{WEDGE_OBJ_ID}" '
+            f'p:UUID="{uuid.uuid4()}" '
+            f'transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+        )
+        extra_components += f"\n   {wedge_component}"
     model_xml = model_xml.replace(
         "</components>",
-        f"{support_component}\n   </components>",
+        f"{extra_components}\n   </components>",
     )
     files["3D/3dmodel.model"] = model_xml.encode()
 
-    # ── 3. Create support sub-object file ─────────────────────────────────
+    # ── 3. Create support sub-object file(s) ──────────────────────────────
     def _make_sub_model(mesh, obj_id):
         body = _mesh_to_xml_body(mesh, obj_id)
         return (
@@ -628,16 +707,24 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         )
 
     files[SUPPORT_OBJ_FILE] = _make_sub_model(support_local, SUPPORT_OBJ_ID).encode()
+    if support_wedge_local is not None:
+        files[WEDGE_OBJ_FILE] = _make_sub_model(support_wedge_local, WEDGE_OBJ_ID).encode()
 
     # ── 4. Update rels ────────────────────────────────────────────────────
     rels_xml = files["3D/_rels/3dmodel.model.rels"].decode()
-    new_rel = (
+    new_rels = (
         f' <Relationship Target="/{SUPPORT_OBJ_FILE}" '
         f'Id="{SUPPORT_REL_ID}" '
         f'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
     )
+    if support_wedge_local is not None:
+        new_rels += (
+            f'\n <Relationship Target="/{WEDGE_OBJ_FILE}" '
+            f'Id="{WEDGE_REL_ID}" '
+            f'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
+        )
     rels_xml = rels_xml.replace("</Relationships>",
-                                f"{new_rel}\n</Relationships>")
+                                f"{new_rels}\n</Relationships>")
     files["3D/_rels/3dmodel.model.rels"] = rels_xml.encode()
 
     # ── 5. Update model_settings.config ──────────────────────────────────
@@ -659,6 +746,22 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         f'    </part>'
     )
 
+    wedge_part_xml = ""
+    if support_wedge_local is not None:
+        wedge_part_xml = (
+            f'\n    <part id="{WEDGE_OBJ_ID}" subtype="normal_part">\n'
+            f'      <metadata key="name" value="support_wedge"/>\n'
+            f'      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n'
+            f'      <metadata key="wall_loops" value="0"/>\n'
+            f'      <metadata key="top_shell_layers" value="0"/>\n'
+            f'      <metadata key="bottom_shell_layers" value="0"/>\n'
+            f'      <metadata key="sparse_infill_density" value="100%"/>\n'
+            f'      <metadata key="enable_support" value="0"/>\n'
+            f'      <mesh_stat edges_fixed="0" degenerate_facets="0" '
+            f'facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n'
+            f'    </part>'
+        )
+
     obj_open_pat = f'<object id="{composite_id}">'
     obj_open_idx = settings_xml.find(obj_open_pat)
     if obj_open_idx == -1:
@@ -669,7 +772,7 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         raise ValueError("</object> not found in model_settings.config")
     settings_xml = (
         settings_xml[:close_idx]
-        + support_part_xml + "\n  "
+        + support_part_xml + wedge_part_xml + "\n  "
         + settings_xml[close_idx:]
     )
     files["Metadata/model_settings.config"] = settings_xml.encode()
@@ -703,10 +806,13 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         for name, data in files.items():
             zout.writestr(name, data)
 
-    print(f"\n2-volume 3MF written: {output_path}")
-    print(f"  Object id={composite_id}: model(1) + support({SUPPORT_OBJ_ID})")
-    print(f"  Support: X{support_local.bounds[:,0]} Y{support_local.bounds[:,1]} "
-          f"Z{support_local.bounds[:,2]}  infill={inf_str}")
+    n_parts = 3 if support_wedge_local is not None else 2
+    print(f"\n{n_parts}-part 3MF written: {output_path}")
+    print(f"  Object id={composite_id}: model(1) + support({SUPPORT_OBJ_ID})"
+          + (f" + wedge({WEDGE_OBJ_ID})" if support_wedge_local is not None else ""))
+    print(f"  Support (sparse {inf_str}): Z{support_local.bounds[:,2]}")
+    if support_wedge_local is not None:
+        print(f"  Wedge (solid 100%):        Z{support_wedge_local.bounds[:,2]}")
 
 
 # ── Legacy STL Compound Export ────────────────────────────────────────────────
@@ -773,8 +879,12 @@ def main():
                         help="Output path (default: <model>_supported.3mf)")
     parser.add_argument("-c", "--config", default=None,
                         help="Support config INI file")
-    parser.add_argument("--infill", default="10%",
-                        help="Support infill density (default: 10%%)")
+    parser.add_argument("--infill", default="25%",
+                        help="Support infill density (default: 25%% — denser fills "
+                             "the keel wedge earlier on the belt)")
+    parser.add_argument("--wedge-layers", type=int, default=10,
+                        help="Solid-infill wedge base: N virtual layers (default: 10, "
+                             "≈2.8mm at 0.2mm layer / 45°). Set 0 to disable.")
     parser.add_argument("--support-only", action="store_true",
                         help="Export only the support mesh as STL (debug)")
     parser.add_argument("--compound", action="store_true",
@@ -815,6 +925,17 @@ def main():
     # Load model in LOCAL space for overhang detection and boolean ops
     model_local = load_mesh_local(str(model_path))
 
+    # Adjust floor_z to the actual model bottom in local space.
+    # DEFAULT_CONFIG floor_z=0.1 assumes Z_min=0. For models with Z_min≠0
+    # (e.g. centered models with Z_min=-10), floor_z must be Z_min + 0.1
+    # so the support column starts at the belt surface, not mid-model.
+    z_min_local = float(model_local.bounds[0, 2])
+    auto_floor_z = z_min_local + 0.1
+    if abs(auto_floor_z - config["floor_z"]) > 0.01:
+        print(f"  floor_z adjusted: {config['floor_z']} → {auto_floor_z:.3f} "
+              f"(model Z_min={z_min_local:.3f})")
+        config["floor_z"] = auto_floor_z
+
     overhang_mask = detect_overhangs(
         model_local,
         threshold_angle=config["threshold_angle"],
@@ -851,11 +972,37 @@ def main():
     support_local = _subtract_model(support_raw, model_local,
                                     side_gap=config["side_gap"])
 
+    # ── Wedge base: solid bottom N layers for belt adhesion ────────────────
+    support_wedge = None
+    support_main = support_local
+    if args.wedge_layers > 0:
+        # Virtual layer height at 45° = layer_height / cos(45°) = layer_height * √2
+        # Default layer_height = 0.2mm → virtual = 0.283mm/layer
+        wedge_height = args.wedge_layers * 0.2 * (2 ** 0.5)
+        print(f"\nWedge base: {args.wedge_layers} layers × 0.283mm = {wedge_height:.2f}mm Z height")
+        support_wedge, support_main = split_support_wedge(support_local, wedge_height)
+        if support_main is None:
+            # Entire support is wedge height — use as wedge, no sparse body
+            support_wedge = support_local
+            support_main = None  # export will use a dummy
+
+    # If wedge split consumed entire support, pass empty trimesh as support_local
+    # (OrcaSlicer needs at least the wedge to be present)
+    if support_main is None:
+        # Only wedge — export wedge as sparse support (no separate wedge part)
+        support_to_export = support_wedge
+        wedge_to_export = None
+        print("  Note: all support is wedge — exporting as single solid part")
+    else:
+        support_to_export = support_main
+        wedge_to_export = support_wedge
+
     export_3mf_two_volumes(
         source_3mf=str(model_path),
-        support_local=support_local,
+        support_local=support_to_export,
         output_path=args.output,
         infill_density=args.infill,
+        support_wedge_local=wedge_to_export,
     )
 
     print("\nDone.")
