@@ -78,6 +78,11 @@ public:
     std::string travel_to_xy(const Vec2d &point, const std::string &comment = std::string());
     std::string travel_to_xyz(const Vec3d &point, const std::string &comment = std::string(), bool force_z = false);
     std::string travel_to_z(double z, const std::string &comment = std::string(), bool force = false);
+    // ORCA_BELT: Belt-specific separated layer change (like IdeaMaker).
+    // belt_set_layer_z: emits G0 Z{z_mach} alone (belt moves to new layer).
+    // belt_travel_to_xy: emits G0 X Y_mach alone (nozzle moves), handles Y-hop.
+    std::string belt_set_layer_z(double z_nominal, const std::string &comment = std::string());
+    std::string belt_travel_to_xy(const Vec3d &point, const std::string &comment = std::string());
     bool        will_move_z(double z) const;
     std::string extrude_to_xy(const Vec2d &point, double dE, const std::string &comment = std::string(), bool force_no_extrusion = false);
     //BBS: generate G2 or G3 extrude which moves by arc
@@ -91,6 +96,8 @@ public:
     // record a lift request, do realy lift in next travel
     std::string lazy_lift(LiftType lift_type = LiftType::NormalLift, bool spiral_vase = false);
     std::string unlift();
+    // ORCA_BELT: Cancel any scheduled (deferred) lift without emitting gcode.
+    void        cancel_pending_lift() { m_to_lift = 0.; }
     const Vec3d& get_position() const { return m_pos; }
     Vec3d&       get_position() { return m_pos; }
     void        set_position(const Vec3d& in) { m_pos = in; }
@@ -250,14 +257,13 @@ public:
     void emit_xy(const Vec3d &point) {
         Vec3d final_point = point;
         if (m_is_belt) {
-            // ORCA_BELT: Belt printers emit XYZ through the inverse transform.
-            // With i_zy=0, Z_mach = Z_gcode directly — no Y*tan(θ) compensation.
+            // ORCA_BELT: Belt inverse transform for XY only.
+            // Z_mach is constant per layer — set once at layer change, not on every move.
             Vec3d p = point;
             p.z() += m_z_offset;
             final_point = BeltTransform::inverse_transform_point(p, m_belt_angle);
             this->emit_axis('X', final_point.x(), XYZF_EXPORT_DIGITS);
             this->emit_axis('Y', final_point.y(), XYZF_EXPORT_DIGITS);
-            this->emit_axis('Z', final_point.z(), XYZF_EXPORT_DIGITS);
             return;
         }
         this->emit_axis('X', final_point.x(), XYZF_EXPORT_DIGITS);

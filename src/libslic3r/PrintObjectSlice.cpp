@@ -184,9 +184,24 @@ static std::vector<VolumeSlices> slice_volumes_inner(
                         for (; params.slicing_mode_normal_below_layer < zs.size() && zs[params.slicing_mode_normal_below_layer] < region_config.bottom_shell_thickness - EPSILON;
                             ++ params.slicing_mode_normal_below_layer);
                     }
+                    auto slices_result = slice_volume(*model_volume, zs, params, throw_on_cancel_callback);
+                    // ORCA_BELT debug: count non-empty slices per volume
+                    {
+                        size_t non_empty = 0;
+                        for (const auto &s : slices_result) if (!s.empty()) non_empty++;
+                        if (slices_result.size() > 0) {
+                            size_t last_nonempty = slices_result.size();
+                            while (last_nonempty > 0 && slices_result[last_nonempty-1].empty()) last_nonempty--;
+                            BOOST_LOG_TRIVIAL(info) << "ORCA_BELT slice_volume: vol_id=" << model_volume->id().id
+                                << " slices=" << slices_result.size()
+                                << " non_empty=" << non_empty
+                                << " last_nonempty_idx=" << (last_nonempty > 0 ? last_nonempty-1 : 0)
+                                << " last_nonempty_z=" << (last_nonempty > 0 ? zs[last_nonempty-1] : 0.f);
+                        }
+                    }
                     out.push_back({
                         model_volume->id(),
-                        slice_volume(*model_volume, zs, params, throw_on_cancel_callback)
+                        std::move(slices_result)
                     });
                 }
             } else {
@@ -1194,6 +1209,18 @@ void PrintObject::slice_volumes()
     }
     region_slices.clear();
 
+    // ORCA_BELT debug: count non-empty layers before top removal
+    {
+        size_t non_empty = 0;
+        for (auto *l : m_layers) if (!l->empty()) non_empty++;
+        BOOST_LOG_TRIVIAL(info) << "ORCA_BELT slice_volumes: before top-removal: "
+            << m_layers.size() << " total layers, " << non_empty << " non-empty"
+            << " top3_slice_z=" << (m_layers.size()>=3 ? m_layers[m_layers.size()-3]->slice_z : 0)
+            << " last_slice_z=" << (m_layers.empty() ? 0 : m_layers.back()->slice_z)
+            << " top3_empty=" << (m_layers.size()>=3 ? (int)m_layers[m_layers.size()-3]->empty() : -1)
+            << " top2_empty=" << (m_layers.size()>=2 ? (int)m_layers[m_layers.size()-2]->empty() : -1)
+            << " top1_empty=" << (m_layers.empty() ? -1 : (int)m_layers.back()->empty());
+    }
     BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - removing top empty layers";
     while (! m_layers.empty()) {
         const Layer *layer = m_layers.back();
@@ -1202,6 +1229,9 @@ void PrintObject::slice_volumes()
         delete layer;
         m_layers.pop_back();
     }
+    BOOST_LOG_TRIVIAL(info) << "ORCA_BELT slice_volumes: after top-removal: "
+        << m_layers.size() << " layers remain"
+        << " last_slice_z=" << (m_layers.empty() ? 0 : m_layers.back()->slice_z);
     if (! m_layers.empty())
         m_layers.back()->upper_layer = nullptr;
     m_print->throw_if_canceled();

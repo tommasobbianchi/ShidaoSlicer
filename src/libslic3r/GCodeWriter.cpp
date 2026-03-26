@@ -614,11 +614,13 @@ std::string GCodeWriter::eager_lift(const LiftType type) {
     // Z_mach = -Y_gcode + Z_gcode (i_zy=-1), so also add hop/√2 to Z_gcode
     // to keep belt position constant: Z_mach = -(Y+Δ) + (Z+Δ) = -Y+Z = unchanged.
     if (m_is_belt && target_lift > 0) {
+        // ORCA_BELT: Belt Y-lift emits XY only (no Z).
+        // Z_mach = -(Y+hop/√2) + (Z+hop/√2) = -Y+Z = unchanged.
         double hop_gcode = target_lift / 1.41421356;  // hop / √2
         Vec3d target(m_pos(0), m_pos(1) + hop_gcode, m_pos(2) + hop_gcode);
         Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
         GCodeG1Formatter w(m_is_belt, m_belt_angle);
-        w.emit_xyz(point_on_plate);
+        w.emit_xy(point_on_plate);  // XY only — Z_mach doesn't change during Y-hop
         double speed = this->config.travel_speed_z.value;
         if (speed == 0.)
             speed = m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed")
@@ -807,6 +809,58 @@ std::string GCodeWriter::travel_to_xyz(const Vec3d &point, const std::string &co
     m_pos = dest_point;
     this->set_current_position_clear(true);
     return out_string;
+}
+
+std::string GCodeWriter::belt_set_layer_z(double z_nominal, const std::string &comment)
+{
+    // ORCA_BELT: Emit G0 Z{z_mach} alone for belt layer change.
+    // Z_mach = z_nominal (constant per layer, since inclined Z and inverse transform cancel Y).
+    // Update internal Z tracking: m_pos.z = z_nominal + current_Y * tan(angle).
+    double tan_angle = std::tan(Geometry::deg2rad(m_belt_angle));
+    m_pos(2) = z_nominal + m_pos(1) * tan_angle;
+
+    double speed = this->config.travel_speed_z.value;
+    if (speed == 0.)
+        speed = m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed")
+                                 : this->config.travel_speed.value;
+
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    w.emit_z(z_nominal);  // Direct Z_mach, no inverse transform needed
+    w.emit_f(speed * 60.0);
+    w.emit_comment(GCodeWriter::full_gcode_comment, comment);
+    return w.string();
+}
+
+std::string GCodeWriter::belt_travel_to_xy(const Vec3d &point, const std::string &comment)
+{
+    // ORCA_BELT: Emit G0 X Y_mach alone for belt travel (no Z).
+    // Applies Y-hop if scheduled (deferred from lazy_lift).
+    Vec3d dest_point = point;
+
+    if (std::abs(m_to_lift) > EPSILON) {
+        // Belt Y-hop: add hop/√2 to both Y and Z in gcode space.
+        // Y_mach = √2*(Y+hop/√2) = √2*Y + hop. Z_mach unchanged.
+        double hop_gcode = m_to_lift / 1.41421356;
+        dest_point(1) += hop_gcode;
+        dest_point(2) += hop_gcode;
+        m_lifted = m_to_lift;
+        m_to_lift = 0.;
+    }
+
+    auto travel_speed =
+        m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed")
+                         : this->config.travel_speed.value;
+
+    Vec3d point_on_plate = { dest_point(0) - m_x_offset, dest_point(1) - m_y_offset, dest_point(2) };
+
+    GCodeG1Formatter w(m_is_belt, m_belt_angle);
+    w.emit_xy(point_on_plate);  // Belt emit_xy: inverse transform → X, Y_mach only
+    w.emit_f(travel_speed * 60.0);
+    w.emit_comment(GCodeWriter::full_gcode_comment, comment);
+
+    m_pos = dest_point;
+    this->set_current_position_clear(true);
+    return w.string();
 }
 
 std::string GCodeWriter::travel_to_z(double z, const std::string &comment, bool force)
@@ -1088,11 +1142,12 @@ std::string GCodeWriter::unlift()
         if (m_is_belt) {
             // ORCA_BELT: Belt Y-unlift — subtract hop/√2 from both Y and Z.
             // Y_mach = √2*Y_gcode → gantry descends. Z_mach = -Y+Z → stays constant.
+            // Emit XY only (no Z) since Z_mach doesn't change during Y-hop/unlift.
             double hop_gcode = m_lifted / 1.41421356;  // hop / √2
             Vec3d target(m_pos(0), m_pos(1) - hop_gcode, m_pos(2) - hop_gcode);
             Vec3d point_on_plate = { target(0) - m_x_offset, target(1) - m_y_offset, target(2) };
             GCodeG1Formatter w(m_is_belt, m_belt_angle);
-            w.emit_xyz(point_on_plate);
+            w.emit_xy(point_on_plate);  // XY only — Z_mach is constant
             double speed = this->config.travel_speed_z.value;
             if (speed == 0.)
                 speed = m_is_first_layer ? this->config.get_abs_value("initial_layer_travel_speed")

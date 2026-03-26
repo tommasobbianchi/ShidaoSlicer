@@ -1,7 +1,7 @@
 {
-    "error_string": "The input files to the slicer are not found.",
+    "error_string": "Success.",
     "export_time": 0,
     "plate_index": 0,
     "prepare_time": 0,
-    "return_code": -3
+    "return_code": 0
 }

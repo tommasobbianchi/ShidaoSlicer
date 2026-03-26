@@ -4874,7 +4874,15 @@ LayerResult GCode::process_layer(
 
     if (!need_insert_timelapse_gcode_for_traditional) { // Equivalent to the timelapse gcode placed in layer_change_gcode
         if (FILAMENT_CONFIG(retract_when_changing_layer)) {
-            gcode += this->retract(false, false, auto_lift_type, true);
+            if (m_belt_inclined_gcode) {
+                // ORCA_BELT: Belt layer change — retract only, no lift/hop.
+                // IdeaMaker pattern: retract → Z alone → XY alone → unretract.
+                // The belt_set_layer_z handles Z, belt_travel_to_xy handles XY.
+                gcode += this->retract(false, false, auto_lift_type, false);
+                m_writer.cancel_pending_lift();  // No Y-hop for belt layer changes
+            } else {
+                gcode += this->retract(false, false, auto_lift_type, true);
+            }
         }
         gcode += insert_timelapse_gcode();
     }
@@ -5454,13 +5462,10 @@ std::string GCode::change_layer(coordf_t print_z)
         z = std::max(0.0, z - m_belt_z_base);
 
     m_nominal_z = z;
-    // ORCA_BELT: For belt printers, m_pos.z must include the inclined Z component
-    // (Y_gcode × tan(belt_angle)) for the current Y position.  Without this,
-    // eager_lift() and other code that reads m_pos to emit G-code will compute
-    // Z_mach = -Y_gcode + m_nominal_z via the inverse transform, which produces
-    // a belt reversal when Y_gcode is large.  The correct invariant is:
-    //   m_pos.z = m_nominal_z + m_pos.y × tan(angle)
-    // so that Z_mach = -Y + (m_nominal_z + Y) = m_nominal_z  (constant).
+    // ORCA_BELT: Position Z must include the inclined component so that
+    // travel_to_xyz → emit_xyz produces Z_mach = nominal_z (constant per layer).
+    // Without inclined Z: Z_mach = -Y + nominal_z (varies with Y → belt oscillates).
+    // With inclined Z:    Z_mach = -Y + (nominal_z + Y) = nominal_z (constant ✓).
     if (m_belt_inclined_gcode) {
         double tan_angle = std::tan(m_belt_angle_radians);
         m_writer.get_position().z() = z + m_writer.get_position().y() * tan_angle;
@@ -6759,18 +6764,13 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
                     if (sloped == nullptr) {
                         // Normal extrusion
                         Vec2d dest2d = this->point_to_gcode(line.b);
-                        if (m_belt_inclined_gcode) {
-                            double inclined_z = compute_belt_inclined_z(dest2d, m_nominal_z);
-                            gcode += m_writer.extrude_to_xyz(
-                                Vec3d(dest2d.x(), dest2d.y(), inclined_z),
-                                dE,
-                                GCodeWriter::full_gcode_comment ? tempDescription : "", path.is_force_no_extrusion());
-                        } else {
-                            gcode += m_writer.extrude_to_xy(
-                                dest2d,
-                                dE,
-                                GCodeWriter::full_gcode_comment ? tempDescription : "", path.is_force_no_extrusion());
-                        }
+                        // ORCA_BELT: Belt extrusion uses extrude_to_xy (XY only, no Z).
+                        // Z_mach is constant per layer — set once at layer change.
+                        // extrude_to_xy internally tracks inclined Z for the inverse transform.
+                        gcode += m_writer.extrude_to_xy(
+                            dest2d,
+                            dE,
+                            GCodeWriter::full_gcode_comment ? tempDescription : "", path.is_force_no_extrusion());
                     } else {
                         // Sloped extrusion
                         const auto [z_ratio, e_ratio] = sloped->interpolate(path_length / total_length);
@@ -6807,18 +6807,11 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
                                 }
                             }
                             Vec2d dest2d = this->point_to_gcode(line.b);
-                            if (m_belt_inclined_gcode) {
-                                double inclined_z = compute_belt_inclined_z(dest2d, m_nominal_z);
-                                gcode += m_writer.extrude_to_xyz(
-                                    Vec3d(dest2d.x(), dest2d.y(), inclined_z),
-                                    dE,
-                                    GCodeWriter::full_gcode_comment ? tempDescription : "", path.is_force_no_extrusion());
-                            } else {
-                                gcode += m_writer.extrude_to_xy(
-                                    dest2d,
-                                    dE,
-                                    GCodeWriter::full_gcode_comment ? tempDescription : "", path.is_force_no_extrusion());
-                            }
+                            // ORCA_BELT: Belt extrusion uses extrude_to_xy (XY only, no Z).
+                            gcode += m_writer.extrude_to_xy(
+                                dest2d,
+                                dE,
+                                GCodeWriter::full_gcode_comment ? tempDescription : "", path.is_force_no_extrusion());
                         }
                         break;
                     }
@@ -7187,27 +7180,37 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
 
     // use G1 because we rely on paths being straight (G0 may make round paths)
     if (travel.size() >= 2) {
+        // ORCA_BELT: Belt travel strategy.
+        // Layer change travel: Combined XYZ sets belt Z and nozzle position
+        //   in a single move (safe — belt and nozzle move together).
+        // Subsequent travel: XY only (belt Z already set, stays constant).
+        // This matches IdeaMaker's pattern: Z set once per layer, then XY only.
+        if (m_belt_inclined_gcode) {
+            for (size_t i = 1; i < travel.size(); ++i) {
+                const auto& dest2d = this->point_to_gcode(travel.points[i]);
+                double inclined_z = compute_belt_inclined_z(dest2d, m_nominal_z);
+                Vec3d dest3d(dest2d(0), dest2d(1), inclined_z);
+                if (m_need_change_layer_lift_z) {
+                    // First travel of layer: combined XYZ sets belt position
+                    gcode += m_writer.travel_to_xyz(dest3d, comment);
+                    m_need_change_layer_lift_z = false;
+                } else {
+                    // Within-layer travel: XY only (Z already set)
+                    gcode += m_writer.belt_travel_to_xy(dest3d, comment);
+                }
+            }
+        }
         // Orca: use `travel_to_xyz` to ensure we start at the correct z, in case we moved z in custom/filament change gcode
-        if (false/*m_spiral_vase*/) {
+        else if (false/*m_spiral_vase*/) {
             // No lazy z lift for spiral vase mode
             for (size_t i = 1; i < travel.size(); ++i) {
-                // ORCA_BELT: Belt travel needs XYZ with inclined Z (same as extrusion moves)
-                if (m_belt_inclined_gcode) {
-                    Vec2d dest2d = this->point_to_gcode(travel.points[i]);
-                    double inclined_z = compute_belt_inclined_z(dest2d, m_nominal_z);
-                    gcode += m_writer.travel_to_xyz(Vec3d(dest2d.x(), dest2d.y(), inclined_z), comment);
-                } else {
-                    gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
-                }
+                gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
             }
         } else {
             if (travel.size() == 2) {
                 // No extra movements emitted by avoid_crossing_perimeters, simply move to the end point with z change
                 const auto& dest2d = this->point_to_gcode(travel.points.back());
                 double base_z = z == DBL_MAX ? m_nominal_z : z;
-                // ORCA_BELT: Apply inclined Z so inverse transform produces correct Y_mach
-                if (m_belt_inclined_gcode)
-                    base_z = compute_belt_inclined_z(dest2d, base_z);
                 Vec3d dest3d(dest2d(0), dest2d(1), base_z);
                 gcode += m_writer.travel_to_xyz(dest3d, comment, m_need_change_layer_lift_z);
                 m_need_change_layer_lift_z = false;
@@ -7217,33 +7220,20 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
                 for (size_t i = 1; i < travel.size(); ++i) {
                     if (i == 1) {
                         // Lift to normal z at beginning
-                        Vec2d dest2d = this->point_to_gcode(travel.points[i]);
-                        // ORCA_BELT: Apply inclined Z for belt travel
-                        double travel_z = m_belt_inclined_gcode
-                            ? compute_belt_inclined_z(dest2d, m_nominal_z)
-                            : m_nominal_z;
-                        Vec3d dest3d(dest2d(0), dest2d(1), travel_z);
+                        Vec3d dest3d(this->point_to_gcode(travel.points[i])(0),
+                                     this->point_to_gcode(travel.points[i])(1),
+                                     m_nominal_z);
                         gcode += m_writer.travel_to_xyz(dest3d, comment, m_need_change_layer_lift_z);
                         m_need_change_layer_lift_z = false;
                     } else if (z != DBL_MAX && i == travel.size() - 1) {
                         // Apply z_ratio for the very last point
-                        Vec2d dest2d = this->point_to_gcode(travel.points[i]);
-                        // ORCA_BELT: Apply inclined Z for belt travel
-                        double travel_z = m_belt_inclined_gcode
-                            ? compute_belt_inclined_z(dest2d, z)
-                            : z;
-                        Vec3d dest3d(dest2d(0), dest2d(1), travel_z);
+                        Vec3d dest3d(this->point_to_gcode(travel.points[i])(0),
+                                     this->point_to_gcode(travel.points[i])(1),
+                                     z);
                         gcode += m_writer.travel_to_xyz(dest3d, comment);
                     } else {
                         // For all points in between, no z change
-                        // ORCA_BELT: Belt travel needs XYZ with inclined Z
-                        if (m_belt_inclined_gcode) {
-                            Vec2d dest2d = this->point_to_gcode(travel.points[i]);
-                            double inclined_z = compute_belt_inclined_z(dest2d, m_nominal_z);
-                            gcode += m_writer.travel_to_xyz(Vec3d(dest2d.x(), dest2d.y(), inclined_z), comment);
-                        } else {
-                            gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
-                        }
+                        gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
                     }
                 }
             }
@@ -7402,7 +7392,10 @@ std::string GCode::retract(bool toolchange, bool is_last_retraction, LiftType li
         return gcode;
 
     // wipe (if it's enabled for this extruder and we have a stored wipe path and no-zero wipe distance)
-    if (FILAMENT_CONFIG(wipe) && m_wipe.has_path() && scale_(FILAMENT_CONFIG(wipe_distance)) > SCALED_EPSILON) {
+    // ORCA_BELT: Skip wipe for belt printers — wipe moves at the previous layer's Z
+    // cause the belt to oscillate back, producing erratic machine movements.
+    if (FILAMENT_CONFIG(wipe) && m_wipe.has_path() && scale_(FILAMENT_CONFIG(wipe_distance)) > SCALED_EPSILON
+        && !m_belt_inclined_gcode) {
         Wipe::RetractionValues wipeRetractions = m_wipe.calculateWipeRetractionLengths(*this, toolchange);
         gcode += toolchange ? m_writer.retract_for_toolchange(true,wipeRetractions.retractLengthBeforeWipe) : m_writer.retract(true, wipeRetractions.retractLengthBeforeWipe);
         gcode += m_wipe.wipe(*this,wipeRetractions.retractLengthDuringWipe, toolchange, is_last_retraction);

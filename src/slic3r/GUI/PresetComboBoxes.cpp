@@ -1000,9 +1000,9 @@ bool PlaterPresetComboBox::switch_to_tab()
     */
 
     //BBS  Select NoteBook Tab params
-    if (tab->GetParent() == wxGetApp().params_panel())
+    if (tab->GetParent() == wxGetApp().params_panel()) {
         wxGetApp().mainframe->select_tab(MainFrame::tp3DEditor);
-    else {
+    } else {
         wxGetApp().params_dialog()->Popup();
         tab->OnActivate();
     }

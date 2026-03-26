@@ -3011,6 +3011,17 @@ bool PartPlate::set_shape(const Pointfs& shape, const Pointfs& exclude_areas, co
 
 		calc_bounding_boxes();
 
+		// ORCA_BELT: In CLI mode (no Plater/OpenGL), skip GL model creation.
+		// This prevents SIGSEGV in init_model_from_poly when running headless.
+		if (!m_plater) {
+			ExPolygon poly;
+			generate_print_polygon(poly);
+			m_print_polygon = poly;
+			// Skip all OpenGL-dependent operations:
+			// calc_triangles, calc_exclude_triangles, calc_gridlines,
+			// init_raycaster, calc_vertex_for_icons, etc.
+		} else {
+
 		ExPolygon logo_poly;
 		generate_logo_polygon(logo_poly);
 		m_logo_triangles.reset();
@@ -3052,6 +3063,7 @@ bool PartPlate::set_shape(const Pointfs& shape, const Pointfs& exclude_areas, co
 			// calc vertex for plate name
 			generate_plate_name_texture();
 		}
+		} // end else (GUI mode)
 	}
 
 	calc_height_limit();

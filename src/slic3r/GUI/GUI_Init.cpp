@@ -54,8 +54,6 @@ int GUI_Run(GUI_InitParams &params)
         gui->init_params = &params;
 
         if (params.argc > 1) {
-            // STUDIO-273 wxWidgets report error when opening some files with specific names
-            // wxWidgets does not handle parameters, so intercept parameters here, only keep the app name
             int                 argc = 1;
             std::vector<char *> argv;
             argv.push_back(params.argv[0]);
