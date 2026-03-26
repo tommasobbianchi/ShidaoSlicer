@@ -43,9 +43,68 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config(config_path=None):
-    """Load support parameters from INI file, falling back to defaults."""
+def read_3mf_support_settings(path_3mf):
+    """
+    Read OrcaSlicer support settings from a 3MF project_settings.config.
+
+    Maps OrcaSlicer JSON keys → preprocessor config keys:
+      support_threshold_angle   → threshold_angle
+      support_object_xy_distance → xy_gap
+      support_top_z_distance    → z_gap
+
+    Returns a dict with only the keys that were found (no defaults injected).
+    """
+    import json
+
+    try:
+        with zipfile.ZipFile(path_3mf) as z:
+            if "Metadata/project_settings.config" not in z.namelist():
+                return {}
+            raw = z.read("Metadata/project_settings.config").decode()
+        proj = json.loads(raw)
+    except Exception as e:
+        print(f"  Warning: could not read 3MF project settings ({e})")
+        return {}
+
+    mapping = {
+        "support_threshold_angle":   ("threshold_angle", float),
+        "support_object_xy_distance": ("xy_gap",          float),
+        "support_top_z_distance":    ("z_gap",            float),
+    }
+
+    found = {}
+    for orca_key, (cfg_key, cast) in mapping.items():
+        val = proj.get(orca_key)
+        if val is None:
+            continue
+        # OrcaSlicer stores array values as lists — take first element
+        if isinstance(val, list):
+            val = val[0]
+        try:
+            found[cfg_key] = cast(val)
+        except (ValueError, TypeError):
+            pass
+
+    return found
+
+
+def load_config(config_path=None, base_overrides=None):
+    """
+    Load support parameters.
+
+    Priority (lowest → highest):
+      1. DEFAULT_CONFIG hardcoded defaults
+      2. base_overrides (e.g. values read from the 3MF project settings)
+      3. INI file at config_path (explicit --config argument)
+    """
     cfg = dict(DEFAULT_CONFIG)
+
+    if base_overrides:
+        cfg.update(base_overrides)
+        print("Config from 3MF project settings:")
+        for k, v in base_overrides.items():
+            print(f"  {k} = {v}  (from 3MF)")
+
     if config_path and Path(config_path).exists():
         parser = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
         parser.read(config_path)
@@ -53,9 +112,15 @@ def load_config(config_path=None):
             for key in list(cfg.keys()):
                 if key in parser["support"]:
                     cfg[key] = float(parser["support"][key])
-        print(f"Config loaded from {config_path}")
-    else:
+        print(f"Config overrides from {config_path}:")
+        if "support" in parser:
+            for key in list(cfg.keys()):
+                if key in parser["support"]:
+                    print(f"  {key} = {cfg[key]}  (from INI)")
+    elif not base_overrides:
         print("Using default config")
+
+    print("Effective config:")
     for k, v in cfg.items():
         print(f"  {k} = {v}")
     return cfg
@@ -725,7 +790,13 @@ def main():
         args.output = str(model_path.stem) + ("_compound.stl" if args.compound
                                                else "_supported.3mf")
 
-    config = load_config(args.config)
+    # Read support settings from the 3MF first (if available), then let
+    # the explicit --config INI file override them.
+    base_overrides = {}
+    if model_path.suffix.lower() == ".3mf":
+        base_overrides = read_3mf_support_settings(str(model_path))
+
+    config = load_config(args.config, base_overrides=base_overrides)
 
     # ── Legacy STL compound mode ───────────────────────────────────────────
     if args.compound:
