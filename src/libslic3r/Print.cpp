@@ -1278,6 +1278,50 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
     bool is_belt_printer = this->config().printer_is_belt.value ||
                            this->config().belt_inclined_gcode.value ||
                            this->config().printer_structure.value == PrinterStructure::psBelt;
+
+    // ORCA_BELT: Warn if built-in support is enabled for a belt printer.
+    // Built-in support generates virtual-space columns that fail gcode gate R7
+    // (Z oscillation). Use support_preprocess.py for model-space supports instead.
+    if (is_belt_printer && warning != nullptr) {
+        bool any_builtin_support = false;
+        for (const PrintObject *object : m_objects) {
+            if (object->config().enable_support.value) {
+                any_builtin_support = true;
+                break;
+            }
+        }
+        if (any_builtin_support) {
+            StringObjectException belt_support_warning;
+            belt_support_warning.string     = L("Belt printers: built-in support is not compatible with belt geometry and may cause crashes. Use support_preprocess.py to generate model-space supports instead.");
+            belt_support_warning.opt_key    = "enable_support";
+            belt_support_warning.is_warning = true;
+            *warning = belt_support_warning;
+        }
+
+        // ORCA_BELT: Belt placement validator.
+        // After trafo_centered(), the virtual bbox Z_min should be near 0 (model keel at belt surface).
+        // A large Z_min offset means the model is floating off the belt — first layer will not adhere.
+        // Threshold: 5mm in virtual space is suspiciously large for a first-layer offset.
+        const double belt_placement_threshold_mm = 5.0;
+        for (const PrintObject *object : m_objects) {
+            if (object->model_object() == nullptr)
+                continue;
+            BoundingBoxf3 virtual_bbox = object->model_object()->raw_mesh_bounding_box()
+                                             .transformed(object->trafo_centered());
+            if (virtual_bbox.min.z() > belt_placement_threshold_mm) {
+                StringObjectException placement_warning;
+                placement_warning.string = Slic3r::format(
+                    _u8L("Belt printer: object '%1%' may not be keel-first on belt. "
+                         "First virtual layer is %2$.1fmm above belt surface - first-layer adhesion may fail."),
+                    object->model_object()->name, virtual_bbox.min.z());
+                placement_warning.opt_key    = "";
+                placement_warning.is_warning = true;
+                *warning = placement_warning;
+                break; // Report first offending object only
+            }
+        }
+    }
+
     for (size_t print_object_idx = 0; print_object_idx < m_objects.size(); ++ print_object_idx) {
         const PrintObject &print_object = *m_objects[print_object_idx];
         //FIXME It is quite expensive to generate object layers just to get the print height!
