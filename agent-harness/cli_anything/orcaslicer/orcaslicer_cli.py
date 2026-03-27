@@ -266,6 +266,25 @@ def upload_cmd(ctx, gcode, name, skip_validation):
     # Validate first unless skipped
     if not skip_validation:
         if not use_json:
+            click.echo("  Pre-flight check...")
+        preflight = validate.preflight_check(gcode)
+        if preflight["result"] != "PASS":
+            result = {
+                "success": False,
+                "error": "Pre-flight FAILED — upload blocked",
+                "preflight": preflight,
+            }
+            if use_json:
+                click.echo(json.dumps(result, indent=2, default=str))
+            else:
+                click.echo("  BLOCKED: Pre-flight check failed:")
+                for issue in preflight.get("issues", []):
+                    click.echo(f"    FAIL [{issue['rule']}] {issue['message']}")
+            sys.exit(1)
+        elif not use_json:
+            click.echo("  Pre-flight PASSED")
+
+        if not use_json:
             click.echo("  Validating G-code...")
         report = validate.validate_gcode(gcode)
         if not validate.is_safe_to_upload(report):
@@ -333,9 +352,22 @@ def pipeline_cmd(ctx, model_3mf, output_dir, do_upload, name, load_settings):
     if not use_json:
         click.echo(f"  OK: {gcode_path} ({slice_result['duration_s']}s)")
 
-    # Stage 2: Validate
+    # Stage 2: Pre-flight + Validate
     if not use_json:
         click.echo(f"\n  [2/3] Validating...")
+
+    preflight = validate.preflight_check(gcode_path)
+    results["stages"]["preflight"] = preflight
+    if preflight["result"] != "PASS":
+        if not use_json:
+            click.echo("  BLOCKED: Pre-flight check failed:")
+            for issue in preflight.get("issues", []):
+                click.echo(f"    FAIL [{issue['rule']}] {issue['message']}")
+        results["success"] = False
+        if use_json:
+            click.echo(json.dumps(results, indent=2, default=str))
+        sys.exit(1)
+
     val_report = validate.validate_gcode(gcode_path)
     results["stages"]["validate"] = val_report
 
