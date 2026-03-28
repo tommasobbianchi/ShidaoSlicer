@@ -1587,13 +1587,38 @@ int CLI::run(int argc, char **argv)
                             const Vec3d &instance_offset = model_instance->get_offset();
                             BOOST_LOG_TRIVIAL(info) << boost::format("instance %1% transform {%2%,%3%,%4%} at %5%:%6%")% model_object->name % instance_offset.x() % instance_offset.y() %instance_offset.z() % __FUNCTION__ % __LINE__<< std::endl;
                         }*/
-                    current_printer_name = config.option<ConfigOptionString>("printer_settings_id")->value;
-                    current_process_name = config.option<ConfigOptionString>("print_settings_id")->value;
-                    current_printer_model = config.option<ConfigOptionString>("printer_model", true)->value;
-                    current_filaments_name = config.option<ConfigOptionStrings>("filament_settings_id")->values;
-                    current_extruder_count = config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
-                    current_printer_variant_count = config.option<ConfigOptionStrings>("printer_extruder_variant", true)->values.size();
-                    current_print_variant_count = config.option<ConfigOptionStrings>("print_extruder_variant", true)->values.size();
+                    // ORCA_BELT: guard against null-ptr crash when a 3MF was made by an older
+                    // tool that omits these metadata keys (e.g. Voron_Design_Cube_v7.3mf made by
+                    // BambuStudio 2.1.0-alpha).  option<T>(key) can return nullptr either because
+                    // the key is absent OR because the stored type mismatches — check both.
+                    {
+                        auto* p = config.option<ConfigOptionString>("printer_settings_id");
+                        current_printer_name = p ? p->value : "";
+                    }
+                    {
+                        auto* p = config.option<ConfigOptionString>("print_settings_id");
+                        current_process_name = p ? p->value : "";
+                    }
+                    {
+                        auto* p = config.option<ConfigOptionString>("printer_model");
+                        current_printer_model = p ? p->value : "";
+                    }
+                    {
+                        auto* p = config.option<ConfigOptionStrings>("filament_settings_id");
+                        current_filaments_name = p ? p->values : std::vector<std::string>{};
+                    }
+                    {
+                        auto* p = config.option<ConfigOptionFloats>("nozzle_diameter");
+                        current_extruder_count = p ? p->values.size() : 1;
+                    }
+                    {
+                        auto* p = config.option<ConfigOptionStrings>("printer_extruder_variant");
+                        current_printer_variant_count = p ? p->values.size() : 0;
+                    }
+                    {
+                        auto* p = config.option<ConfigOptionStrings>("print_extruder_variant");
+                        current_print_variant_count = p ? p->values.size() : 0;
+                    }
                     current_is_multi_extruder = current_extruder_count > 1;
                     //if (current_is_multi_extruder || (current_printer_variant_count > 1)) {
                         auto opt_extruder_type = dynamic_cast<const ConfigOptionEnumsGeneric*>(config.option("extruder_type"));
@@ -1656,6 +1681,7 @@ int CLI::run(int argc, char **argv)
                         BOOST_LOG_TRIVIAL(info) << boost::format("no inherits_group: use system name the same as current name");
                     }
                     filament_count = current_filaments_name.size();
+
                     upward_compatible_printers = config.option<ConfigOptionStrings>("upward_compatible_machine", true)->values;
                     current_print_compatible_printers  = config.option<ConfigOptionStrings>("print_compatible_printers", true)->values;
                     current_different_settings = config.option<ConfigOptionStrings>("different_settings_to_system", true)->values;

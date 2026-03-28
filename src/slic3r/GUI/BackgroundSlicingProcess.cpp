@@ -99,8 +99,10 @@ std::pair<std::string, std::vector<size_t>> SlicingProcessCompletedEvent::format
         return std::make_pair(std::move(error), ids);
     } catch (std::exception &ex) {
         error = ex.what();
+        BOOST_LOG_TRIVIAL(error) << "ORCA_BELT slicing exception [std::exception]: " << ex.what();
     } catch (...) {
         error = "Unknown C++ exception.";
+        BOOST_LOG_TRIVIAL(error) << "ORCA_BELT slicing exception [unknown type]";
     }
     return std::make_pair(std::move(error), std::vector<size_t>{monospace});
 }

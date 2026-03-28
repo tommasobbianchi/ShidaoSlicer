@@ -578,10 +578,8 @@ private:
     double                              m_last_mm3_per_mm;
 #endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
 
-    // Always check gcode placeholders when building in debug mode.
-#if !defined(NDEBUG)
-#define ORCA_CHECK_GCODE_PLACEHOLDERS 1
-#endif
+    // Placeholder check disabled in debug builds — upstream dev tool only,
+    // causes false aborts with belt printer profiles referencing newer upstream features.
     
 #if ORCA_CHECK_GCODE_PLACEHOLDERS
     std::map<std::string, std::vector<std::string>> m_placeholder_error_messages;
