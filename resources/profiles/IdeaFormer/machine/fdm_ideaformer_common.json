@@ -82,7 +82,7 @@
     ],
     "default_print_profile": "0.20mm Standard @IdeaFormer IR3 V2",
     "host_type": "octoprint",
-    "print_host": "http://<PRINTER_HOST>:7125",
+    "print_host": "http://<PRINTER_HOST>",
     "scan_first_layer": "0",
     "nozzle_type": "undefine",
     "auxiliary_fan": "0",
