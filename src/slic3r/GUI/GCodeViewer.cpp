@@ -1289,11 +1289,18 @@ void GCodeViewer::render(int canvas_width, int canvas_height, int right_margin)
     m_statistics.total_instances_gpu_size = 0;
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
 
+    // ORCA_BELT: throttled trace (1 every 60 frames ~= 1/sec at 60fps)
+    static int frame_cnt = 0;
+    if ((++frame_cnt % 60) == 0) {
+    }
+
     glsafe(::glEnable(GL_DEPTH_TEST));
     render_shells(canvas_width, canvas_height);
 
-    if (m_roles.empty())
+    if (m_roles.empty()) {
+        if ((frame_cnt % 60) == 0)
         return;
+    }
 
     render_toolpaths();
     float legend_height = 0.0f;
@@ -2383,8 +2390,10 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
     //
     // Forward transform (trafo_centered, no Y-flip):
     //   Y_virt = Z_model,  Z_virt = Y_model + Z_model
-    // Inverse (inclined Z): Y_gcode = √2 × Y_virt, Z_gcode = layer_z + Y_virt
-    // Recovery:  Z_model = Y_gcode / √2,  Y_model = Z_gcode - 2 × Z_model
+    // Emitted gcode (GCodeWriter emit_z writes Z_virt; inclined comp only in m_pos):
+    //   Y_gcode = √2 × Y_virt = √2 × Z_model
+    //   Z_gcode = Z_virt       = Y_model + Z_model
+    // Recovery:  Z_model = Y_gcode / √2,  Y_model = Z_gcode − Y_gcode / √2
     //
     // Belt detection: prefer G-code headers, fall back to active printer preset.
     {
@@ -2409,11 +2418,35 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
         if (is_belt && belt_angle > 0.0) {
             const float inv_sqrt2 = 1.0f / std::sqrt(2.0f);
 
+            // ORCA_BELT: Recover model coords from emitted belt gcode.
+            //
+            // This viewer is a pure consumer of the core belt transform pipeline
+            // (GCode.cpp + GCodeWriter.cpp + PrintObject*.cpp). We only invert
+            // what the pipeline produces; we do NOT alter the pipeline.
+            //
+            // Pipeline (α = 45°, tan α = 1, keel-first):
+            //   Forward:    Y_virt = Z_model,  Z_virt = Y_model + Z_model
+            //   Inclined Z: Z_post = Z_virt + Y_virt · tan α
+            //   Inverse [√2,0;-1,1] · (Y_virt, Z_post):
+            //     Y_mach = √2 · Y_virt
+            //     Z_mach = -Y_virt + Z_post = Z_virt + Y_virt·(tan α − 1)
+            //
+            // For α = 45°: Z_mach = Z_virt (the Y·tan and -Y terms cancel).
+            // GCodeWriter emits Y_mach and Z_mach as the literal gcode values
+            // (Klipper interprets X/Y/Z literally — no firmware compensation).
+            //
+            // Therefore:
+            //   Y_gcode = √2 · Z_model
+            //   Z_gcode = Y_model + Z_model
+            //
+            // Recovery (what this lambda computes):
+            //   Z_model = Y_gcode / √2
+            //   Y_model = Z_gcode − Z_model
             auto belt_to_model = [inv_sqrt2](Vec3f& p) {
                 const float y_mach = p.y();
                 const float z_mach = p.z();
                 p.z() = y_mach * inv_sqrt2;       // Z_model = Y_gcode / √2
-                p.y() = z_mach - 2.0f * p.z();    // Y_model = Z_gcode - 2 × Z_model
+                p.y() = z_mach - p.z();           // Y_model = Z_gcode − Z_model
             };
 
             auto& moves = const_cast<GCodeProcessorResult&>(gcode_result).moves;
@@ -2471,45 +2504,58 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                 }
             }
 
-            // Align toolpaths with model shell and clamp non-extrude moves.
+            // Align toolpaths with model shell on ALL three axes.
+            // trafo_centered pretranslates the model (X-center, Y_min→0, Z_min→0)
+            // before the 45° forward transform. belt_to_model only inverts the
+            // forward+shear, not those pretranslates — so toolpaths end up at
+            // (X=centered, Y≈0..h, Z≈0..h) while the mesh stays at its world
+            // position. Shift toolpaths to match the mesh's world-space bbox.
 
-            // 1. Compute model-extrude-only Y range (excludes support, skirt, brim)
-            float ext_y_min = std::numeric_limits<float>::max();
-            float ext_y_max = std::numeric_limits<float>::lowest();
+            // 1. Compute model-extrude-only XYZ range (excludes support, skirt, brim)
+            float ext_x_min = std::numeric_limits<float>::max(), ext_x_max = std::numeric_limits<float>::lowest();
+            float ext_y_min = std::numeric_limits<float>::max(), ext_y_max = std::numeric_limits<float>::lowest();
+            float ext_z_min = std::numeric_limits<float>::max(), ext_z_max = std::numeric_limits<float>::lowest();
             for (const auto& m : moves) {
                 if (is_model_extrude(m)) {
-                    ext_y_min = std::min(ext_y_min, m.position.y());
-                    ext_y_max = std::max(ext_y_max, m.position.y());
+                    ext_x_min = std::min(ext_x_min, m.position.x()); ext_x_max = std::max(ext_x_max, m.position.x());
+                    ext_y_min = std::min(ext_y_min, m.position.y()); ext_y_max = std::max(ext_y_max, m.position.y());
+                    ext_z_min = std::min(ext_z_min, m.position.z()); ext_z_max = std::max(ext_z_max, m.position.z());
                 }
             }
 
-            // 2. Get shell Y range from model instances
-            float shell_y_min = std::numeric_limits<float>::max();
-            float shell_y_max = std::numeric_limits<float>::lowest();
+            // 2. Get shell XYZ range from model instances (world space)
+            float shell_x_min = std::numeric_limits<float>::max(), shell_x_max = std::numeric_limits<float>::lowest();
+            float shell_y_min = std::numeric_limits<float>::max(), shell_y_max = std::numeric_limits<float>::lowest();
+            float shell_z_min = std::numeric_limits<float>::max(), shell_z_max = std::numeric_limits<float>::lowest();
             for (const auto* obj : wxGetApp().model().objects) {
                 for (const auto* inst : obj->instances) {
                     if (inst->is_printable()) {
                         BoundingBoxf3 wbb = inst->transform_bounding_box(obj->raw_mesh_bounding_box());
-                        shell_y_min = std::min(shell_y_min, static_cast<float>(wbb.min.y()));
-                        shell_y_max = std::max(shell_y_max, static_cast<float>(wbb.max.y()));
+                        shell_x_min = std::min(shell_x_min, static_cast<float>(wbb.min.x())); shell_x_max = std::max(shell_x_max, static_cast<float>(wbb.max.x()));
+                        shell_y_min = std::min(shell_y_min, static_cast<float>(wbb.min.y())); shell_y_max = std::max(shell_y_max, static_cast<float>(wbb.max.y()));
+                        shell_z_min = std::min(shell_z_min, static_cast<float>(wbb.min.z())); shell_z_max = std::max(shell_z_max, static_cast<float>(wbb.max.z()));
                     }
                 }
             }
 
-            float y_shift = 0.0f;
-            if (ext_y_min != std::numeric_limits<float>::max() &&
-                shell_y_min != std::numeric_limits<float>::max()) {
-                y_shift = shell_y_min - ext_y_min;
+            Vec3f shift(0.0f, 0.0f, 0.0f);
+            if (ext_x_min != std::numeric_limits<float>::max() &&
+                shell_x_min != std::numeric_limits<float>::max()) {
+                shift.x() = shell_x_min - ext_x_min;
+                shift.y() = shell_y_min - ext_y_min;
+                shift.z() = shell_z_min - ext_z_min;
             }
 
-            if (std::abs(y_shift) > 0.01f) {
+
+            if (shift.squaredNorm() > 0.0001f) {
                 for (auto& move : moves) {
-                    move.position.y() += y_shift;
+                    move.position += shift;
                     for (auto& pt : move.interpolation_points)
-                        pt.y() += y_shift;
+                        pt += shift;
                 }
-                ext_y_min += y_shift;
-                ext_y_max += y_shift;
+                ext_x_min += shift.x(); ext_x_max += shift.x();
+                ext_y_min += shift.y(); ext_y_max += shift.y();
+                ext_z_min += shift.z(); ext_z_max += shift.z();
             }
 
             // 3. Clamp all non-model moves (travel, retract, prime line, etc.)
@@ -2589,8 +2635,20 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
 
     //if (wxGetApp().is_editor())
     {
+        // Belt printers: gcode Z values represent virtual belt space and can exceed printable_height.
+        // Skip the Z height check entirely — belt path validity is enforced by belt_gcode_gate.py.
+        bool is_belt_printer = gcode_result.is_belt_printer;
+        if (!is_belt_printer) {
+            const auto& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+            if (auto* opt = cfg.option<ConfigOptionBool>("printer_is_belt"))
+                is_belt_printer = opt->value;
+        }
+
         //BBS: use convex_hull for toolpath outside check
-        m_contained_in_bed = build_volume.all_paths_inside(gcode_result, m_paths_bounding_box);
+        if (is_belt_printer)
+            m_contained_in_bed = true;
+        else
+            m_contained_in_bed = build_volume.all_paths_inside(gcode_result, m_paths_bounding_box);
         if (m_contained_in_bed) {
             //PartPlateList& partplate_list = wxGetApp().plater()->get_partplate_list();
             //PartPlate* plate = partplate_list.get_curr_plate();

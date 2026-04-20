@@ -7442,7 +7442,14 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
         view3D->get_canvas3d()->reset_sequential_print_clearance();
 
     if (invalidated == Print::APPLY_STATUS_INVALIDATED) {
-        //BBS: update current plater's slicer result to invalid
+        // ORCA_BELT: snapshot plate validity BEFORE we mark it invalid, so the guard
+        // can reason about the pre-invalidation state. In the spurious belt case
+        // (trafos_differ re-invalidation after a successful slice), the plate was
+        // just marked valid by on_process_completed — so was_valid=true here.
+        // In the genuine case (user changed a print-affecting config), the previous
+        // Print::apply already flipped the plate to invalid via path at 15320/8919/
+        // 4964 etc. — so was_valid=false. This distinguishes spurious from real.
+        const bool plate_was_valid = this->background_process.get_current_plate()->is_slice_result_valid();
         this->background_process.get_current_plate()->update_slice_result_valid_state(false);
 
         //no need, should be done in background_process.apply
@@ -7450,9 +7457,23 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
         // Reset preview canvases. If the print has been invalidated, the preview canvases will be cleared.
         // Otherwise they will be just refreshed.
         if (preview != nullptr) {
-            // If the preview is not visible, the following line just invalidates the preview,
-            // but the G-code paths or SLA preview are calculated first once the preview is made visible.
-            reset_gcode_toolpaths();
+            // Skip the UI reset only when: belt printer + viewer still has valid data +
+            // the plate was valid going in (spurious re-invalidation, safe to preserve
+            // the slider). If plate_was_valid=false the invalidation is genuine
+            // — let the reset fire so the stale preview doesn't mislead the user.
+            bool is_belt = false;
+            if (auto* bundle = wxGetApp().preset_bundle) {
+                const auto& printer_cfg = bundle->printers.get_edited_preset().config;
+                if (auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                    is_belt = (ps_opt->value == psBelt);
+            }
+            const bool gcode_still_loaded = preview->get_canvas3d()->get_gcode_viewer().has_data();
+            const bool skip_ui_reset = is_belt && gcode_still_loaded && plate_was_valid;
+            if (!skip_ui_reset) {
+                // If the preview is not visible, the following line just invalidates the preview,
+                // but the G-code paths or SLA preview are calculated first once the preview is made visible.
+                reset_gcode_toolpaths();
+            }
             preview->reload_print();
         }
         // In FDM mode, we need to reload the 3D scene because of the wipe tower preview box.
@@ -8557,7 +8578,24 @@ void Plater::priv::set_current_panel(wxPanel* panel, bool no_slice)
 
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": from set_current_panel, no_slice %1%, export_in_progress %2%, model_fits %3%, m_is_slicing %4%")%no_slice%export_in_progress%model_fits%m_is_slicing;
 
-            if (!no_slice && !this->model.objects.empty() && !export_in_progress && model_fits && current_has_print_instances)
+            // ORCA_BELT: belt printers already have valid gcode after slice_and_stats;
+            // a second reslice on tab-switch wipes the preview briefly (slider disappears).
+            // Skip it ONLY when the viewer has data AND the plate is still validly sliced.
+            // If a config change invalidated the plate, we must NOT skip — the stale
+            // preview would otherwise mask the need for a fresh slice (risk: user sends
+            // old gcode to printer thinking it reflects new settings).
+            bool belt_skip_reslice = false;
+            if (auto* bundle = wxGetApp().preset_bundle) {
+                const auto& printer_cfg = bundle->printers.get_edited_preset().config;
+                if (auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                    belt_skip_reslice = (ps_opt->value == psBelt)
+                        && this->preview && this->preview->get_canvas3d()->get_gcode_viewer().has_data()
+                        && current_plate->is_slice_result_valid();
+            }
+            if (belt_skip_reslice) {
+                // No-op: preview already has the correct gcode for the current slice.
+            }
+            else if (!no_slice && !this->model.objects.empty() && !export_in_progress && model_fits && current_has_print_instances)
             {
                 //if already running in background, not relice here
                 //BBS: add more judge for slicing
