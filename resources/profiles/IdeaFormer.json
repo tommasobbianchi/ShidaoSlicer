@@ -45,6 +45,10 @@
         {
             "name": "fdm_filament_petg",
             "sub_path": "filament/fdm_filament_petg.json"
+        },
+        {
+            "name": "eSun PLA White @IdeaFormer IR3 V2",
+            "sub_path": "filament/eSun PLA White @IdeaFormer IR3 V2.json"
         }
     ]
 }

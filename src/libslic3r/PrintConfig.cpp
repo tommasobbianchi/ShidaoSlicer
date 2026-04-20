@@ -8065,8 +8065,16 @@ void DynamicPrintConfig::set_num_extruders(unsigned int num_extruders)
             // empty fields there, if not defined by the system profile.
             continue;
         auto *opt = this->option(key, false);
-        assert(opt != nullptr);
-        assert(opt->is_vector());
+        if (opt == nullptr) {
+            // Key missing from this config (e.g. old 3MF without newer extruder option keys).
+            // Create it from the schema default so resize can proceed.
+            const ConfigOptionDef *def = print_config_def.get(key);
+            if (def != nullptr && def->default_value)
+                this->set_key_value(key, def->default_value->clone());
+            opt = this->option(key, false);
+        }
+        if (opt == nullptr || !opt->is_vector())
+            continue; // Silently skip truly unknown or non-vector extruder options.
         if (opt != nullptr && opt->is_vector()) {
             static_cast<ConfigOptionVectorBase*>(opt)->resize(get_parameter_size(key, num_extruders), defaults.option(key));
         }

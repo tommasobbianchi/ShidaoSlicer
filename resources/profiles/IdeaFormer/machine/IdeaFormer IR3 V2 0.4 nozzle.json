@@ -21,5 +21,7 @@
     "thumbnails": [
         "48x48/PNG",
         "300x300/PNG"
-    ]
+    ],
+    "print_host": "http://<PRINTER_HOST>",
+    "host_type": "octoprint"
 }
