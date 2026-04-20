@@ -2386,6 +2386,13 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
     if (m_moves_count == 0)
         return;
 
+    // ORCA_BELT: layer_keys holds the original Z_gcode (machine Z) for each move,
+    // captured BEFORE belt_to_model inverse transforms positions into model space.
+    // Used later by the m_layers grouping loop so the layer slider remains
+    // layer-grained (one slider step per slicer-layer) even though rendered
+    // positions are per-vertex 45° planes. Empty when not belt printer.
+    std::vector<float> layer_keys;
+
     // ORCA_BELT: Map G-code (machine) coordinates back to model space for preview.
     //
     // Forward transform (trafo_centered, no Y-flip):
@@ -2453,7 +2460,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
 
             // Save layer keys before transform: Z_mach is constant per layer
             // (belt gcode uses separated Z/XY: Z set once at layer change, XY for moves)
-            std::vector<float> layer_keys(moves.size());
+            layer_keys.assign(moves.size(), 0.0f);
             for (size_t i = 0; i < moves.size(); ++i)
                 layer_keys[i] = moves[i].position.z();
 
@@ -2484,7 +2491,6 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                        m.extrusion_role != erSupportMaterial &&
                        m.extrusion_role != erSupportMaterialInterface;
             };
-            (void)layer_keys;  // not used anymore — kept above for future diagnostics
 
             // Align toolpaths with model shell on ALL three axes.
             // trafo_centered pretranslates the model (X-center, Y_min→0, Z_min→0)
@@ -3238,7 +3244,13 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
         if (move.type == EMoveType::Extrude) {
             // layers zs
             const double* const last_z = m_layers.empty() ? nullptr : &m_layers.get_zs().back();
-            const double z = static_cast<double>(move.position.z());
+            // ORCA_BELT: for belt printers, group layers by the original Z_gcode
+            // (constant per slicer-layer) instead of the per-vertex Z_model
+            // produced by belt_to_model — otherwise the layer slider has one
+            // step per extrusion point (~55k steps) instead of per layer (~141).
+            const double z = (!layer_keys.empty() && i < layer_keys.size())
+                ? static_cast<double>(layer_keys[i])
+                : static_cast<double>(move.position.z());
             if (last_z == nullptr || z < *last_z - EPSILON || *last_z + EPSILON < z)
                 m_layers.append(z, { last_travel_s_id, move_id });
             else
