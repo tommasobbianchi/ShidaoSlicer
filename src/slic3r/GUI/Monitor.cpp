@@ -371,8 +371,12 @@ void MonitorPanel::update_all()
         m_media_file_panel->UpdateByObj(obj);
     }
 
-    if (current_page == m_hms_panel || (obj->GetHMS()->GetHMSItems().size() != m_hms_panel->temp_hms_list.size())) {
-        m_hms_panel->update(obj);
+    // ORCA_BELT: null-guard obj->GetHMS() — for non-Bambu machines (IdeaFormer etc.)
+    // HMS is not populated so GetHMS() can return null → deref crashes.
+    if (auto* hms = obj->GetHMS()) {
+        if (current_page == m_hms_panel || (hms->GetHMSItems().size() != m_hms_panel->temp_hms_list.size())) {
+            m_hms_panel->update(obj);
+        }
     }
 
     update_hms_tag();

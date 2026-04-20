@@ -2464,12 +2464,17 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                     belt_to_model(pt);
             }
 
-            // Layer-coherent Z quantization: snap all moves in the same layer
-            // to a single Z_model value so the preview layer slider works.
-            // Without this, support (near belt, low Y_mach) and model (high Y_mach)
-            // get different Z_model values, splitting the same layer in the viewer.
+            // ORCA_BELT: NO Z quantization. A belt "slicer-layer" at Z_gcode=c
+            // corresponds after inverse to the 45° plane Y_model + Z_model = c.
+            // Snapping all moves in a layer to a single representative Z_model
+            // (as done previously) collapses that plane into a flat horizontal
+            // slice — which is why the cube appeared with horizontal layers
+            // instead of the 45° inclined layers the nozzle actually traces.
+            // Leave Z_model as produced by belt_to_model so each layer renders
+            // as an honest 45° plane.
 
-            // is_model_extrude: excludes support so support Y/Z don't skew alignment
+            // is_model_extrude still needed for XYZ alignment below (excludes
+            // support/skirt/brim so their extents don't skew shell-toolpath shift).
             auto is_model_extrude = [](const GCodeProcessorResult::MoveVertex& m) {
                 return m.type == EMoveType::Extrude &&
                        m.extrusion_role != erCustom &&
@@ -2479,30 +2484,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                        m.extrusion_role != erSupportMaterial &&
                        m.extrusion_role != erSupportMaterialInterface;
             };
-
-            // Build map: layer_key → representative Z_model (avg of model extrusions)
-            auto key_fn = [](float lk) -> int { return int(std::round(lk * 100.0f)); };
-            std::map<int, std::pair<double, int>> z_rep_map;  // key → (sum_z, count)
-            for (size_t i = 0; i < moves.size(); ++i) {
-                if (is_model_extrude(moves[i])) {
-                    int key = key_fn(layer_keys[i]);
-                    auto& entry = z_rep_map[key];
-                    entry.first += double(moves[i].position.z());
-                    entry.second++;
-                }
-            }
-
-            // Snap all moves to representative Z for their layer
-            for (size_t i = 0; i < moves.size(); ++i) {
-                int key = key_fn(layer_keys[i]);
-                auto it = z_rep_map.find(key);
-                if (it != z_rep_map.end() && it->second.second > 0) {
-                    float rep_z = float(it->second.first / it->second.second);
-                    moves[i].position.z() = rep_z;
-                    for (auto& pt : moves[i].interpolation_points)
-                        pt.z() = rep_z;
-                }
-            }
+            (void)layer_keys;  // not used anymore — kept above for future diagnostics
 
             // Align toolpaths with model shell on ALL three axes.
             // trafo_centered pretranslates the model (X-center, Y_min→0, Z_min→0)
@@ -2558,20 +2540,12 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                 ext_z_min += shift.z(); ext_z_max += shift.z();
             }
 
-            // 3. Clamp all non-model moves (travel, retract, prime line, etc.)
-            //    to model extrude Y range so they don't create visual artifacts.
-            if (ext_y_min != std::numeric_limits<float>::max()) {
-                const float margin = 2.0f;
-                const float clamp_lo = ext_y_min - margin;
-                const float clamp_hi = ext_y_max + margin;
-                for (auto& move : moves) {
-                    if (!is_model_extrude(move)) {
-                        move.position.y() = std::clamp(move.position.y(), clamp_lo, clamp_hi);
-                        for (auto& pt : move.interpolation_points)
-                            pt.y() = std::clamp(pt.y(), clamp_lo, clamp_hi);
-                    }
-                }
-            }
+            // ORCA_BELT: Previously non-model moves (travel, retract, prime line)
+            // were clamped to the model-extrude Y range. That clamp created the
+            // "wedge" artifact visible in the preview (travel moves snapping to
+            // an offset rectangle behind the cube). Let non-model moves render
+            // at their recovered Y position — if they extend outside the model
+            // bbox, that's an honest representation of what the slicer emitted.
         }
     }
 

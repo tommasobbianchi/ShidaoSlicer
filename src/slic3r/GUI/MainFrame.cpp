@@ -1148,18 +1148,14 @@ void MainFrame::init_tabpanel() {
     create_preset_tabs();
 
         //BBS add pages
-    m_monitor = new MonitorPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-    m_monitor->SetBackgroundColour(*wxWHITE);
-    m_tabpanel->AddPage(m_monitor, _L("Device"), std::string("tab_monitor_active"), std::string("tab_monitor_active"), false);
-
-    m_printer_view = new PrinterWebView(m_tabpanel);
-    Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent &evt) {
-        wxString url = evt.GetString();
-        wxString key = evt.GetAPIkey();
-        //select_tab(MainFrame::tpMonitor);
-        m_printer_view->load_url(url, key);
-    });
-    m_printer_view->Hide();
+    // ORCA_BELT: do NOT instantiate MonitorPanel or PrinterWebView at startup.
+    // MonitorPanel assumes a Bambu machine object with cloud/AMS/HMS state;
+    // on non-Bambu printers clicking the Device tab crashed the app with
+    // null-deref or wxWebViewWebKit Fluidd error-page JS crash.
+    // show_device(bBBLPrinter) is responsible for inserting the right tab
+    // lazily once the printer vendor is known.
+    m_monitor = nullptr;
+    m_printer_view = nullptr;
 
     if (wxGetApp().is_enable_multi_machine()) {
         m_multi_machine = new MultiMachinePage(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
@@ -1235,9 +1231,13 @@ void MainFrame::show_device(bool bBBLPrinter) {
 #endif // _MSW_DARK_MODE
 
     } else {
-        if (m_tabpanel->FindPage(m_printer_view) != wxNOT_FOUND)
-            return;
-
+        // ORCA_BELT: for non-Bambu printers (Klipper/Moonraker/etc.), the
+        // webview-based Device tab proxies Fluidd/Mainsail. wxWebViewWebKit
+        // crashes the app on certain Moonraker error states (e.g. websocket
+        // drop / "Klippy Not Connected" JS page). Until we harden the backend,
+        // hide the Device tab entirely — users can open Fluidd in a normal
+        // browser and upload via Plater's "Send to printer" button (HTTP
+        // OctoPrint-compat API on Moonraker), which doesn't need the webview.
         if ((idx = m_tabpanel->FindPage(m_calibration)) != wxNOT_FOUND) {
             m_calibration->Show(false);
             m_tabpanel->RemovePage(idx);
@@ -1250,18 +1250,12 @@ void MainFrame::show_device(bool bBBLPrinter) {
             m_monitor->Show(false);
             m_tabpanel->RemovePage(idx);
         }
-        if (m_printer_view == nullptr) {
-            m_printer_view = new PrinterWebView(m_tabpanel);
-            Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent& evt) {
-                wxString url = evt.GetString();
-                wxString key = evt.GetAPIkey();
-                // select_tab(MainFrame::tpMonitor);
-                m_printer_view->load_url(url, key);
-            });
+        if (m_printer_view != nullptr) {
+            if ((idx = m_tabpanel->FindPage(m_printer_view)) != wxNOT_FOUND) {
+                m_printer_view->Show(false);
+                m_tabpanel->RemovePage(idx);
+            }
         }
-        m_printer_view->Show(false);
-        m_tabpanel->InsertPage(tpMonitor, m_printer_view, _L("Device"), std::string("tab_monitor_active"),
-                               std::string("tab_monitor_active"));
     }
 }
 
