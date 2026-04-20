@@ -36,6 +36,26 @@ Z_PER_LAYER_MAX = 3          # max G1 commands with Z per layer (1 ideal, allow 
 MIN_Y_HOPS_RATIO = 0.5       # at least 50% of travel retract cycles should have Y-hop
 
 
+# ── Slicer detection ────────────────────────────────────────────────────
+
+def detect_slicer(lines, scan_lines=30):
+    """Detect which slicer generated the G-code from header comments.
+
+    Returns a lowercase string: 'orcaslicer', 'ideamaker', 'bambu', or 'unknown'.
+    Only the first scan_lines lines are checked (header only).
+    """
+    for line in lines[:scan_lines]:
+        l = line.lower()
+        # ORCA_BELT: treat our fork identifier ("OrcaBelt" in the header) as orcaslicer.
+        if "orcaslicer" in l or "orca slicer" in l or "orcabelt" in l or "orca belt" in l:
+            return "orcaslicer"
+        if "ideamaker" in l or "idea maker" in l:
+            return "ideamaker"
+        if "bambustudio" in l or "bambu studio" in l:
+            return "bambu"
+    return "unknown"
+
+
 class GcodeValidator:
     def __init__(self, filepath, verbose=False):
         self.filepath = filepath
@@ -43,6 +63,8 @@ class GcodeValidator:
         self.lines = Path(filepath).read_text().splitlines()
         self.results = []
         self.layer_count = 0
+        self.slicer = detect_slicer(self.lines)
+        self.total_moves = 0
 
     def fail(self, rule, msg):
         self.results.append(("FAIL", rule, msg))
@@ -316,7 +338,19 @@ class GcodeValidator:
                       f"{reversals} Z reversals between layers — belt going backward!")
 
     def validate(self):
-        """Run all checks and return exit code."""
+        """Run all checks and return (fails, warns).
+
+        Belt safety checks are only applied to OrcaSlicer G-code.
+        Files from other slicers (IdeaMaker, Bambu, unknown) are passed
+        immediately with no warnings — they have their own validation logic
+        and are not expected to follow OrcaSlicer belt conventions.
+        """
+        if self.slicer != "orcaslicer":
+            self.results.append(("OK", "SLICER-SKIP",
+                                  f"Slicer detected: {self.slicer!r} — "
+                                  f"OBP belt checks apply to OrcaSlicer only. Passing without checks."))
+            return [], []
+
         self.parse()
 
         self.check_z_constancy()        # R1
@@ -341,7 +375,7 @@ class GcodeValidator:
 
         print(f"\n{'='*60}")
         print(f"  Belt G-code Validation: {Path(self.filepath).name}")
-        print(f"  Layers: {self.layer_count}  |  Moves: {self.total_moves}")
+        print(f"  Slicer: {self.slicer}  |  Layers: {self.layer_count}  |  Moves: {self.total_moves}")
         print(f"{'='*60}\n")
 
         for status, rule, msg in self.results:
@@ -368,6 +402,7 @@ class GcodeValidator:
         fails, warns = self.validate()
         return {
             "file": str(self.filepath),
+            "slicer": self.slicer,
             "layers": self.layer_count,
             "total_moves": self.total_moves,
             "result": "FAIL" if fails else ("WARN" if warns else "PASS"),
