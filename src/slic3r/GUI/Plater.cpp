@@ -6691,6 +6691,27 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             //BBS calc transformation
             Geometry::Transformation t = instance->get_transformation();
             instance->set_offset(Slic3r::to_3d(this->bed.build_volume().bed_center(), -object->origin_translation(2)));
+
+            // ORCA_BELT: keel-align centered meshes on belt printers.
+            // center_around_origin() puts mesh bbox centered on (0,0,0), which
+            // for a belt bed places half the mesh at Y<0 (behind the belt keel
+            // at Y=0) — Orca flags this as "Object laid over the boundary" and
+            // the slice refuses to start. Shift Y by -bbox.min.y() so the
+            // mesh's Y_min corner sits flush on the keel. Z is handled later
+            // by ensure_on_bed().
+            if (auto* bundle = wxGetApp().preset_bundle) {
+                const auto& printer_cfg = bundle->printers.get_edited_preset().config;
+                if (auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure")) {
+                    if (ps_opt->value == psBelt) {
+                        BoundingBoxf3 wbb = object->instance_bounding_box(object->instances.size() - 1);
+                        if (wbb.min.y() < 0.0) {
+                            Vec3d off = instance->get_offset();
+                            off.y() -= wbb.min.y();
+                            instance->set_offset(off);
+                        }
+                    }
+                }
+            }
 #endif /* AUTOPLACEMENT_ON_LOAD */
         }
 

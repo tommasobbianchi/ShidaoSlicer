@@ -331,10 +331,44 @@ void CommandDispatch::register_model_commands() {
             auto* plater = wxGetApp().plater();
             auto& model = plater->model();
             size_t start_index = model.objects.size();
+
+            // ORCA_BELT: detect belt printer — if so we'll keel-align below.
+            bool is_belt = false;
+            if (auto* bundle = wxGetApp().preset_bundle) {
+                const auto& pcfg = bundle->printers.get_edited_preset().config;
+                if (auto* ps = pcfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                    is_belt = (ps->value == psBelt);
+            }
+            // Compute bed center X (for belt placement). Build volume is in plate coords.
+            double bed_center_x = 0.0;
+            if (is_belt) {
+                auto bb2d = plater->build_volume().bounding_volume2d();
+                bed_center_x = (bb2d.min.x() + bb2d.max.x()) * 0.5;
+            }
+
             for (ModelObject* obj : loaded.objects) {
                 ModelObject* new_obj = model.add_object(*obj);
                 if (new_obj->instances.empty())
                     new_obj->add_instance();
+
+                // ORCA_BELT: place centered meshes at (X=bed_center, Y_min=0, Z_min=0)
+                // so they sit flush on the belt keel with X centered. Without this,
+                // MCP-loaded meshes end up at world origin (X=0, Y=±extent/2), which
+                // puts half the mesh off the belt's X range [0, 250] and below the
+                // keel at Y<0 — Orca refuses to slice with "over the boundary".
+                if (is_belt && !new_obj->instances.empty()) {
+                    ModelInstance* inst = new_obj->instances.back();
+                    BoundingBoxf3 wbb = new_obj->instance_bounding_box(
+                        new_obj->instances.size() - 1);
+                    Vec3d off = inst->get_offset();
+                    // Center X on the belt bed center
+                    double mesh_cx = (wbb.min.x() + wbb.max.x()) * 0.5;
+                    off.x() += (bed_center_x - mesh_cx);
+                    // Keel-align Y and Z
+                    if (wbb.min.y() < 0.0) off.y() -= wbb.min.y();
+                    if (wbb.min.z() < 0.0) off.z() -= wbb.min.z();
+                    inst->set_offset(off);
+                }
             }
 
             // Register all new instances with the current plate (see add_primitive).
