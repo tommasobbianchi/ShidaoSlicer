@@ -48,8 +48,6 @@
 #include <wx/utils.h>
 #include <chrono>
 #include <cstdlib>
-#include <ctime>
-#include <fstream>
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Format/STL.hpp"
@@ -15262,33 +15260,24 @@ static boost::filesystem::path belt_supports_find_script()
     return fs::path{};
 }
 
-static void belt_supports_trace(const std::string& msg)
+static void belt_supports_log(const std::string& msg)
 {
     const bool is_error = msg.rfind("ERROR", 0) == 0 || msg.rfind("EXCEPTION", 0) == 0;
     if (is_error)
         BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS] " << msg;
     else
         BOOST_LOG_TRIVIAL(info)    << "[BELT_SUPPORTS] " << msg;
-
-    if (const char* e = std::getenv("ORCABELT_C2_TRACE"); e && *e) {
-        try {
-            std::ofstream f("/tmp/orcabelt_c2.trace", std::ios::app);
-            f << "[" << std::time(nullptr) << "] " << msg << "\n";
-        } catch (...) {}
-    }
 }
 
 static bool belt_supports_inject_volumes(Plater& plater)
 {
     namespace fs = boost::filesystem;
-    belt_supports_trace("inject_volumes called");
 
     fs::path script = belt_supports_find_script();
     if (script.empty()) {
-        belt_supports_trace("ERROR: support_preprocess.py not found");
+        belt_supports_log("ERROR: support_preprocess.py not found");
         return false;
     }
-    belt_supports_trace("script: " + script.string());
 
     auto ts = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::system_clock::now().time_since_epoch()).count());
@@ -15297,34 +15286,26 @@ static bool belt_supports_inject_volumes(Plater& plater)
 
     int ret = plater.export_3mf(tmp_in, SaveStrategy::SplitModel | SaveStrategy::Silence, -1, nullptr);
     if (ret < 0 || !fs::exists(tmp_in)) {
-        belt_supports_trace("ERROR: export_3mf failed, rc=" + std::to_string(ret));
+        belt_supports_log("ERROR: export_3mf failed, rc=" + std::to_string(ret));
         return false;
     }
-    belt_supports_trace("exported 3mf to " + tmp_in.string());
 
     wxString cmd = wxString::Format("python3 \"%s\" \"%s\" -o \"%s\"",
         wxString::FromUTF8(script.string()),
         wxString::FromUTF8(tmp_in.string()),
         wxString::FromUTF8(tmp_out.string()));
-    belt_supports_trace("spawn: " + cmd.ToStdString());
     long rc = wxExecute(cmd, wxEXEC_SYNC | wxEXEC_HIDE_CONSOLE);
-    belt_supports_trace("wxExecute rc=" + std::to_string(rc) + " tmp_out_exists=" + std::to_string(fs::exists(tmp_out)));
 
     boost::system::error_code ec;
+    // ORCABELT_C2_TRACE env retains tmp_in/tmp_out for offline diagnosis
+    // (which support_preprocess.py wrote, what volumes it injected, etc.).
     const bool keep_tmp = std::getenv("ORCABELT_C2_TRACE") != nullptr;
-    if (!keep_tmp)
-        fs::remove(tmp_in, ec);
-    else
-        belt_supports_trace("RETAIN: tmp_in=" + tmp_in.string());
+    if (!keep_tmp) fs::remove(tmp_in, ec);
 
     if (rc != 0 || !fs::exists(tmp_out)) {
-        belt_supports_trace("ERROR: preprocess failed, rc=" + std::to_string(rc));
+        belt_supports_log("ERROR: preprocess rc=" + std::to_string(rc)
+                          + " tmp_out_exists=" + std::to_string(fs::exists(tmp_out)));
         return false;
-    }
-
-    // Log output size for diagnosis
-    if (fs::exists(tmp_out)) {
-        belt_supports_trace("tmp_out size=" + std::to_string(fs::file_size(tmp_out, ec)));
     }
 
     Model supported;
@@ -15334,14 +15315,11 @@ static bool belt_supports_inject_volumes(Plater& plater)
         supported = Model::read_from_file(tmp_out.string(), &cfg, &subst,
                                           LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel);
     } catch (const std::exception& e) {
-        belt_supports_trace(std::string("ERROR: read_from_file threw: ") + e.what());
+        belt_supports_log(std::string("ERROR: read_from_file threw: ") + e.what());
         if (!keep_tmp) fs::remove(tmp_out, ec);
         return false;
     }
-    if (!keep_tmp)
-        fs::remove(tmp_out, ec);
-    else
-        belt_supports_trace("RETAIN: tmp_out=" + tmp_out.string());
+    if (!keep_tmp) fs::remove(tmp_out, ec);
 
     ModelObject* dst = plater.model().objects[0];
 
@@ -15352,9 +15330,7 @@ static bool belt_supports_inject_volumes(Plater& plater)
     dst->config.set_key_value("enable_support", new ConfigOptionBool(false));
 
     if (supported.objects.empty() || supported.objects[0]->volumes.size() < 2) {
-        belt_supports_trace("INFO: script produced no extra volumes (objects="
-                            + std::to_string(supported.objects.size())
-                            + "); slicing without supports, native Orca support disabled");
+        belt_supports_log("no extra volumes injected; native support disabled");
         return true;
     }
 
@@ -15364,9 +15340,8 @@ static bool belt_supports_inject_volumes(Plater& plater)
         dst->add_volume(*src->volumes[i]);
     dst->invalidate_bounding_box();
 
-    belt_supports_trace("OK injected " + std::to_string(dst->volumes.size() - before)
-                        + " volumes (total=" + std::to_string(dst->volumes.size())
-                        + "), per-object enable_support=false");
+    belt_supports_log("injected " + std::to_string(dst->volumes.size() - before)
+                      + " volumes (total=" + std::to_string(dst->volumes.size()) + ")");
     return true;
 }
 
@@ -15396,24 +15371,15 @@ void Plater::reslice()
         return;
     }
 
-    // Orca belt: pre-process supports via external script (C2 v2).
-    // Checks both preset-level and per-object enable_support.
-    // Idempotent: objects[0]->volumes.size()>1 ⇒ already injected.
-    {
-        bool sp = belt_supports_should_preprocess(*this);
-        size_t n_obj  = model().objects.size();
-        size_t n_vol0 = (n_obj > 0 && model().objects[0]) ? model().objects[0]->volumes.size() : 0;
-        belt_supports_trace("reslice hook: should_preprocess=" + std::to_string(sp)
-                            + " objects=" + std::to_string(n_obj)
-                            + " vol0="    + std::to_string(n_vol0));
-        if (sp) {
-            try {
-                belt_supports_inject_volumes(*this);
-            } catch (const std::exception& e) {
-                belt_supports_trace(std::string("EXCEPTION: ") + e.what());
-            } catch (...) {
-                belt_supports_trace("EXCEPTION: unknown");
-            }
+    // Orca belt: pre-process supports + keel wedge via external script.
+    // Idempotent: skips if already injected (objects[0]->volumes.size()>1).
+    if (belt_supports_should_preprocess(*this)) {
+        try {
+            belt_supports_inject_volumes(*this);
+        } catch (const std::exception& e) {
+            belt_supports_log(std::string("EXCEPTION: ") + e.what());
+        } catch (...) {
+            belt_supports_log("EXCEPTION: unknown");
         }
     }
 
