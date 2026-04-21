@@ -15224,6 +15224,11 @@ bool Plater::is_multi_extruder_ams_empty()
 // load_files round-trip that breaks BackgroundSlicingProcess lifecycle.
 // v2: belt GUI guard disables preset-level enable_support, users can only
 // enable it via per-object override — so we check both preset and per-object.
+// v4 (2026-04-21): preprocessor now also detects "keel gap" (mesh's
+// min(Y+Z)_shifted > 0.05mm) and auto-injects a keel wedge to fix R11 on
+// centered-origin meshes. So the hook must fire for every belt print, not
+// only when supports are requested — the preprocessor fast-passes (no-ops
+// via shutil.copy2) when neither supports nor a keel wedge are needed.
 static bool belt_supports_should_preprocess(Plater& plater)
 {
     const auto& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -15236,12 +15241,7 @@ static bool belt_supports_should_preprocess(Plater& plater)
     if (!objs[0])                     return false;
     if (objs[0]->volumes.size() != 1) return false;   // already injected or multi-volume
 
-    const auto& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    bool effective = print_cfg.opt_bool("enable_support");
-    if (objs[0]->config.has("enable_support"))
-        effective = objs[0]->config.get().opt_bool("enable_support");
-
-    return effective;
+    return true;   // belt + single object + single volume: always preprocess
 }
 
 static boost::filesystem::path belt_supports_find_script()

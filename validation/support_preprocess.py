@@ -497,6 +497,63 @@ def create_support_prisms(mesh, mask, xy_gap=0.35, floor_z=0.1):
     return support
 
 
+# ── Keel Gap Detection & Wedge Generation ────────────────────────────────────
+
+def compute_keel_gap(mesh):
+    """Return the minimum (Y+Z)_shifted across all mesh vertices.
+
+    After slicer's trafo_centered shifts the mesh to Y_min=0, Z_min=0, the first
+    oblique layer at virtual Z=layer_height×√2 intersects the diagonal plane
+    Y+Z=0.283. If all vertices have Y+Z > 0.283, that layer is empty, Orca's
+    m_belt_z_base jumps to the next layer, Z_gcode is zeroed at first print,
+    and z_mach = Z − Y/√2 becomes negative → gate R11 FAIL (nozzle below belt).
+
+    Large value (> 0.283) = keel gap → needs a keel wedge to fill layer 1.
+    Value near 0 = mesh already touches keel corner (typical keel-first STL).
+    """
+    v = mesh.vertices
+    y_min = float(v[:, 1].min())
+    z_min = float(v[:, 2].min())
+    return float(((v[:, 1] - y_min) + (v[:, 2] - z_min)).min())
+
+
+def create_keel_wedge(mesh, height=2.83, x_margin=0.0):
+    """Build a triangular-prism wedge that fills the mesh's keel corner.
+
+    In local coords (before trafo_centered shift), the keel corner is at
+    (X_any, Y_min, Z_min). The wedge occupies:
+      - X: [X_min - x_margin, X_max + x_margin]  (spans mesh X extent)
+      - Y: [Y_min, Y_min + height]               (one leg)
+      - Z: [Z_min, Z_min + height]               (other leg)
+      - Hypotenuse: Y+Z = Y_min + Z_min + height  (slanted face facing +Y+Z)
+
+    When sliced on a 45° belt printer, this wedge guarantees non-empty slices
+    in the first ⌊height / (layer_height·√2)⌋ virtual layers near the keel.
+    The `height` matches `split_support_wedge`'s default (10 × 0.2 × √2 ≈ 2.83).
+    """
+    xmi = float(mesh.bounds[0, 0]) - x_margin
+    xma = float(mesh.bounds[1, 0]) + x_margin
+    ymi = float(mesh.bounds[0, 1])
+    zmi = float(mesh.bounds[0, 2])
+    V = np.array([
+        [xmi, ymi,          zmi         ],  # 0: back-bottom
+        [xma, ymi,          zmi         ],  # 1: front-bottom
+        [xma, ymi + height, zmi         ],  # 2: front-ymax-bot
+        [xmi, ymi + height, zmi         ],  # 3: back-ymax-bot
+        [xma, ymi,          zmi + height],  # 4: front-bot-zmax
+        [xmi, ymi,          zmi + height],  # 5: back-bot-zmax
+    ])
+    # Face winding chosen for outward normals (trimesh CCW = outward).
+    F = np.array([
+        [0, 2, 1], [0, 3, 2],        # -Z bottom (4 quad → 2 tri)
+        [0, 1, 4], [0, 4, 5],        # -Y back
+        [3, 5, 4], [3, 4, 2],        # hypotenuse (+Y+Z slant)
+        [0, 5, 3],                   # -X side
+        [1, 2, 4],                   # +X side
+    ])
+    return trimesh.Trimesh(vertices=V, faces=F, process=True)
+
+
 # ── Support Wedge Split ───────────────────────────────────────────────────────
 
 def split_support_wedge(support_local, wedge_height):
@@ -975,6 +1032,32 @@ def main():
               f"(model Z_min={z_min_local:.3f})")
         config["floor_z"] = auto_floor_z
 
+    # ── Keel-gap detection ─────────────────────────────────────────────────
+    # Compute min(Y+Z)_shifted. If > one virtual layer (0.283mm), the first
+    # oblique slicing plane misses the mesh → m_belt_z_base gets set too high
+    # → gate R11 FAIL. Fix: inject a keel wedge so layer 1 is non-empty.
+    keel_gap_mm = compute_keel_gap(model_local)
+    keel_wedge_height = (args.wedge_layers if args.wedge_layers > 0 else 10) \
+                        * 0.2 * (2 ** 0.5)
+    # Threshold: use a small numerical margin (not the full virtual-layer step).
+    # A mesh with min(Y+Z)_shifted=0 is perfectly keel-first (no wedge needed).
+    # Anything greater means the keel corner has no material exactly at it; the
+    # first virtual layer's tiny slice may be too thin to produce extrusions.
+    # Empirical rot090 case (0.281mm) fell BELOW the 0.283 step but the gate still
+    # failed — so the threshold must be tighter than one virtual layer.
+    KEEL_GAP_THRESHOLD = 0.05  # mm — within this margin the mesh effectively touches keel
+    keel_wedge = None
+    if keel_gap_mm > KEEL_GAP_THRESHOLD:
+        print(f"\nKeel gap: {keel_gap_mm:.3f}mm > {KEEL_GAP_THRESHOLD:.3f}mm "
+              f"(first virtual layer empty) — adding keel wedge.")
+        keel_wedge = create_keel_wedge(model_local, height=keel_wedge_height)
+        print(f"  Keel wedge: {keel_wedge_height:.2f}mm tall, "
+              f"{keel_wedge.volume:.1f}mm³ at "
+              f"Y[{model_local.bounds[0,1]:.2f},{model_local.bounds[0,1]+keel_wedge_height:.2f}] "
+              f"Z[{model_local.bounds[0,2]:.2f},{model_local.bounds[0,2]+keel_wedge_height:.2f}]")
+    else:
+        print(f"\nKeel gap: {keel_gap_mm:.3f}mm (mesh contacts keel — no wedge needed).")
+
     overhang_mask = detect_overhangs(
         model_local,
         threshold_angle=config["threshold_angle"],
@@ -982,10 +1065,24 @@ def main():
         min_area=config["min_area"],
     )
 
-    if not overhang_mask.any():
-        print("\nNo overhangs detected — copying source 3MF unchanged.")
+    if not overhang_mask.any() and keel_wedge is None:
+        print("\nNo overhangs and no keel gap — copying source 3MF unchanged.")
         shutil.copy2(str(model_path), args.output)
         print(f"Copied: {args.output}")
+        print("\nDone.")
+        return
+
+    if not overhang_mask.any() and keel_wedge is not None:
+        # Keel-wedge only (no overhangs): emit 3MF with the wedge as the sole
+        # solid volume — 100% infill, same pattern as support_wedge.
+        print("\nNo overhangs but keel gap present — emitting keel wedge only.")
+        export_3mf_two_volumes(
+            source_3mf=str(model_path),
+            support_local=keel_wedge,
+            output_path=args.output,
+            infill_density="100%",
+            support_wedge_local=None,
+        )
         print("\nDone.")
         return
 
@@ -1024,6 +1121,22 @@ def main():
             # Entire support is wedge height — use as wedge, no sparse body
             support_wedge = support_local
             support_main = None  # export will use a dummy
+
+    # Merge keel wedge into support_wedge if both exist (both are 100% infill
+    # solid geometry rooted at the keel; Orca treats them as one volume).
+    if keel_wedge is not None:
+        if support_wedge is None:
+            support_wedge = keel_wedge
+            print(f"\nKeel wedge added as sole wedge volume ({keel_wedge.volume:.1f}mm³).")
+        else:
+            try:
+                merged = trimesh.util.concatenate([support_wedge, keel_wedge])
+                print(f"\nKeel wedge merged with support wedge: "
+                      f"{support_wedge.volume:.1f}mm³ + {keel_wedge.volume:.1f}mm³ "
+                      f"→ {merged.volume:.1f}mm³")
+                support_wedge = merged
+            except Exception as e:
+                print(f"  Warning: wedge concatenation failed ({e}) — keeping support wedge only")
 
     # If wedge split consumed entire support, pass empty trimesh as support_local
     # (OrcaSlicer needs at least the wedge to be present)
