@@ -1,6 +1,6 @@
 {
     "name": "IdeaFormer",
-    "version": "01.06.00.00",
+    "version": "01.07.00.00",
     "force_update": "0",
     "description": "IdeaFormer belt printer configurations",
     "machine_model_list": [
@@ -49,6 +49,22 @@
         {
             "name": "eSun PLA White @IdeaFormer IR3 V2",
             "sub_path": "filament/eSun PLA White @IdeaFormer IR3 V2.json"
+        },
+        {
+            "name": "Generic PLA @IdeaFormer IR3 V2",
+            "sub_path": "filament/Generic PLA @IdeaFormer IR3 V2.json"
+        },
+        {
+            "name": "Generic PLA Matte @IdeaFormer IR3 V2",
+            "sub_path": "filament/Generic PLA Matte @IdeaFormer IR3 V2.json"
+        },
+        {
+            "name": "Generic PLA Silk @IdeaFormer IR3 V2",
+            "sub_path": "filament/Generic PLA Silk @IdeaFormer IR3 V2.json"
+        },
+        {
+            "name": "Generic PLA High Speed @IdeaFormer IR3 V2",
+            "sub_path": "filament/Generic PLA High Speed @IdeaFormer IR3 V2.json"
         }
     ]
 }
