@@ -15311,7 +15311,11 @@ static bool belt_supports_inject_volumes(Plater& plater)
     belt_supports_trace("wxExecute rc=" + std::to_string(rc) + " tmp_out_exists=" + std::to_string(fs::exists(tmp_out)));
 
     boost::system::error_code ec;
-    fs::remove(tmp_in, ec);
+    const bool keep_tmp = std::getenv("ORCABELT_C2_TRACE") != nullptr;
+    if (!keep_tmp)
+        fs::remove(tmp_in, ec);
+    else
+        belt_supports_trace("RETAIN: tmp_in=" + tmp_in.string());
 
     if (rc != 0 || !fs::exists(tmp_out)) {
         belt_supports_trace("ERROR: preprocess failed, rc=" + std::to_string(rc));
@@ -15331,10 +15335,13 @@ static bool belt_supports_inject_volumes(Plater& plater)
                                           LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel);
     } catch (const std::exception& e) {
         belt_supports_trace(std::string("ERROR: read_from_file threw: ") + e.what());
-        fs::remove(tmp_out, ec);
+        if (!keep_tmp) fs::remove(tmp_out, ec);
         return false;
     }
-    fs::remove(tmp_out, ec);
+    if (!keep_tmp)
+        fs::remove(tmp_out, ec);
+    else
+        belt_supports_trace("RETAIN: tmp_out=" + tmp_out.string());
 
     ModelObject* dst = plater.model().objects[0];
 

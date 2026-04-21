@@ -34,6 +34,12 @@ MAX_Z_ONLY_MOVES = 0         # Z-only moves = belt moves without nozzle = crash
 MAX_NEG_Z = 0                # negative Z = belt reversing past home
 Z_PER_LAYER_MAX = 3          # max G1 commands with Z per layer (1 ideal, allow margin)
 MIN_Y_HOPS_RATIO = 0.5       # at least 50% of travel retract cycles should have Y-hop
+ZMACH_MIN = -0.05            # mm — z_mach = Z_gcode - Y_gcode/√2 must be ≥ this.
+#   z_mach is the physical belt position under the nozzle. If negative, the nozzle
+#   is geometrically below the belt surface → imminent crash. Parity with printer-side
+#   gate at ~/obp/belt_gcode_gate.py on IdeaFormer. Tolerance -0.05mm allows for
+#   numerical noise without false-positives on borderline extrusion.
+SQRT2 = 1.41421356
 
 
 # ── Slicer detection ────────────────────────────────────────────────────
@@ -90,9 +96,11 @@ class GcodeValidator:
         self.y_hops = 0
         self.retract_count = 0
         self.total_moves = 0
+        self.zmach_violations = []               # (line_no, layer, z_mach, is_ext) — z_mach < ZMACH_MIN
 
         prev_y = None
         prev_e = None
+        prev_z = None
         in_start_gcode = True  # skip start gcode
 
         for i, line in enumerate(self.lines):
@@ -127,6 +135,7 @@ class GcodeValidator:
                 z_str = mz.group(1)
                 self.layer_z[self.layer_count].append(z_str)
                 self.layer_z_cmds[self.layer_count] += 1
+                prev_z = z_val
 
                 if z_val < -0.001:
                     self.neg_z_moves.append((lineno, z_val))
@@ -173,6 +182,36 @@ class GcodeValidator:
                 prev_y = y_val
             elif my:
                 prev_y = float(my.group(1))
+
+            # R11: z_mach = Z_gcode - Y_gcode/√2. Nozzle must not be below belt surface.
+            if my and prev_z is not None:
+                y_val = float(my.group(1))
+                z_mach = prev_z - y_val / SQRT2
+                if z_mach < ZMACH_MIN:
+                    self.zmach_violations.append((lineno, self.layer_count, z_mach, bool(me)))
+
+    def check_zmach(self):
+        """R11: z_mach = Z_gcode - Y_gcode/√2 must be ≥ ZMACH_MIN.
+        z_mach is the physical belt position under the nozzle. Negative = geometric
+        collision with belt. Parity with printer-side gate on IdeaFormer.
+        Extrusion below surface → FAIL. Travel-only below surface → WARN."""
+        if not self.zmach_violations:
+            self.ok("R11-ZMACH", f"z_mach = Z - Y/√2 ≥ {ZMACH_MIN}mm on all moves")
+            return
+
+        ext_viol = [v for v in self.zmach_violations if v[3]]
+        trav_viol = [v for v in self.zmach_violations if not v[3]]
+        worst = min(self.zmach_violations, key=lambda x: x[2])
+
+        msg = (f"{len(self.zmach_violations)} moves with z_mach < {ZMACH_MIN}mm "
+               f"({len(ext_viol)} extrusion, {len(trav_viol)} travel). "
+               f"Worst: layer {worst[1]}, line {worst[0]}, z_mach={worst[2]:.3f}mm. "
+               f"Nozzle is below belt surface on these moves.")
+
+        if ext_viol:
+            self.fail("R11-ZMACH", msg)
+        else:
+            self.warn("R11-ZMACH", msg + " (travel moves only — no extrusion below surface)")
 
     def check_z_constancy(self):
         """R1: Z must be constant within each layer (belt doesn't oscillate)."""
@@ -362,6 +401,7 @@ class GcodeValidator:
         self.check_first_layer_y()      # R7
         self.check_z_step()             # R8
         self.check_z_monotonic()        # R9
+        self.check_zmach()              # R11
 
         # Determine exit code
         fails = [r for r in self.results if r[0] == "FAIL"]
