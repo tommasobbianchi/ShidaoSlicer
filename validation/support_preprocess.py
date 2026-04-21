@@ -345,53 +345,92 @@ def create_top_cap(mesh, mask, cap_thickness=2.0):
     return cap
 
 
+def _overhang_regions(mesh, mask):
+    """Group mask-true faces into connected components via face adjacency.
+
+    Yields lists of face indices, one per connected region.
+    """
+    from scipy.sparse import lil_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    cand_idx = np.where(mask)[0]
+    if len(cand_idx) == 0:
+        return
+    idx_map = {fi: i for i, fi in enumerate(cand_idx)}
+    adj = lil_matrix((len(cand_idx), len(cand_idx)), dtype=bool)
+    for a, b in mesh.face_adjacency:
+        if a in idx_map and b in idx_map:
+            i, j = idx_map[a], idx_map[b]
+            adj[i, j] = True
+            adj[j, i] = True
+    n_comp, labels = connected_components(adj, directed=False)
+    for c in range(n_comp):
+        yield cand_idx[labels == c]
+
+
 def create_support_box(mesh, mask, xy_gap=0.35, z_gap=0.15, floor_z=0.1):
     """
-    Build a solid support box from overhang faces down to the build plate.
+    Build solid support boxes under overhang regions.
 
-    Produces one axis-aligned box covering the XY footprint of all overhang
-    faces, from floor_z up to just below the lowest overhang vertex.
+    For each connected overhang region, produces one axis-aligned box covering
+    its XY footprint, from floor_z up to just below that region's lowest vertex.
     XY shrunk by xy_gap on each side for clearance from the model.
 
-    The model is subtracted afterwards to remove any overlap with the model body.
-    This gives clean, discrete geometry: the slicer receives a proper solid.
+    Per-region boxes (vs a single global box) prevent one degenerate region
+    — e.g. a chamfered edge right at Z_min — from collapsing the entire support.
 
-    Returns trimesh.Trimesh or None if no support needed.
+    Multiple boxes are returned as a single multi-body Trimesh; downstream
+    boolean ops (manifold engine) handle disconnected components.
+
+    Returns trimesh.Trimesh or None if no valid region.
     """
-    overhang_indices = np.where(mask)[0]
-    if len(overhang_indices) == 0:
+    if not mask.any():
         print("No overhang faces — no support needed.")
         return None
 
-    overhang_verts = mesh.vertices[mesh.faces[overhang_indices]].reshape(-1, 3)
+    boxes = []
+    skipped_degenerate_z = 0
+    skipped_small_xy = 0
 
-    x_min = overhang_verts[:, 0].min() + xy_gap
-    x_max = overhang_verts[:, 0].max() - xy_gap
-    y_min = overhang_verts[:, 1].min() + xy_gap
-    y_max = overhang_verts[:, 1].max() - xy_gap
-    z_top = overhang_verts[:, 2].min() - z_gap    # Z clearance below overhang
-    z_bot = floor_z
+    for region_faces in _overhang_regions(mesh, mask):
+        vs = mesh.vertices[mesh.faces[region_faces]].reshape(-1, 3)
+        x_min = vs[:, 0].min() + xy_gap
+        x_max = vs[:, 0].max() - xy_gap
+        y_min = vs[:, 1].min() + xy_gap
+        y_max = vs[:, 1].max() - xy_gap
+        z_top = vs[:, 2].min() - z_gap
+        z_bot = floor_z
 
-    if z_top <= z_bot:
-        print(f"  Warning: overhang at Z={z_top+z_gap:.2f} too close to floor — skipped.")
+        if z_top <= z_bot:
+            skipped_degenerate_z += 1
+            continue
+        if x_max <= x_min or y_max <= y_min:
+            skipped_small_xy += 1
+            continue
+
+        cx = (x_min + x_max) / 2
+        cy = (y_min + y_max) / 2
+        cz = (z_bot + z_top) / 2
+        boxes.append(trimesh.creation.box(
+            extents=[x_max - x_min, y_max - y_min, z_top - z_bot],
+            transform=trimesh.transformations.translation_matrix([cx, cy, cz])
+        ))
+
+    if not boxes:
+        print(f"  Warning: no valid support regions "
+              f"({skipped_degenerate_z} degenerate Z, {skipped_small_xy} too small XY) — skipped.")
         return None
-    if x_max <= x_min or y_max <= y_min:
-        print("  Warning: overhang too small after XY gap — skipped.")
-        return None
 
-    cx = (x_min + x_max) / 2
-    cy = (y_min + y_max) / 2
-    cz = (z_bot + z_top) / 2
-    support = trimesh.creation.box(
-        extents=[x_max - x_min, y_max - y_min, z_top - z_bot],
-        transform=trimesh.transformations.translation_matrix([cx, cy, cz])
-    )
+    support = boxes[0] if len(boxes) == 1 else trimesh.util.concatenate(boxes)
 
-    print(f"\nSupport box (local space):")
-    print(f"  X: [{x_min:.3f}, {x_max:.3f}]  (xy_gap={xy_gap}mm)")
-    print(f"  Y: [{y_min:.3f}, {y_max:.3f}]  (xy_gap={xy_gap}mm)")
-    print(f"  Z: [{z_bot:.3f}, {z_top:.3f}]  (z_gap={z_gap}mm, overhang at Z={z_top+z_gap:.3f})")
-    print(f"  Volume: {support.volume:.2f} mm³  Watertight: {support.is_watertight}")
+    print(f"\nSupport boxes (local space): {len(boxes)} region(s)")
+    if skipped_degenerate_z or skipped_small_xy:
+        print(f"  Skipped: {skipped_degenerate_z} degenerate Z (near floor), "
+              f"{skipped_small_xy} too small XY")
+    bb = support.bounds
+    print(f"  Overall bounds: X[{bb[0,0]:.2f},{bb[1,0]:.2f}] "
+          f"Y[{bb[0,1]:.2f},{bb[1,1]:.2f}] Z[{bb[0,2]:.2f},{bb[1,2]:.2f}]")
+    print(f"  Total volume: {support.volume:.2f} mm³")
     return support
 
 
