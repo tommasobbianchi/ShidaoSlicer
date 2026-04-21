@@ -45,6 +45,11 @@
 #include <wx/clrpicker.h>
 #include <wx/tokenzr.h>
 #include <wx/aui/aui.h>
+#include <wx/utils.h>
+#include <chrono>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Format/STL.hpp"
@@ -15210,6 +15215,154 @@ bool Plater::is_multi_extruder_ams_empty()
     return true;
 }
 
+// Belt printer support pre-processing (C2 v2).
+// When the user enables supports on a belt printer, delegate generation to
+// the external support_preprocess.py script — Orca's built-in support produces
+// virtual-space columns incompatible with the belt 45° pipeline (fails gate R7).
+// The script outputs a 3MF with additional volumes (support body + wedge base)
+// which we inject into the existing ModelObject via add_volume(), avoiding the
+// load_files round-trip that breaks BackgroundSlicingProcess lifecycle.
+// v2: belt GUI guard disables preset-level enable_support, users can only
+// enable it via per-object override — so we check both preset and per-object.
+static bool belt_supports_should_preprocess(Plater& plater)
+{
+    const auto& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
+    if (!ps_opt || ps_opt->value != psBelt)
+        return false;
+
+    const auto& objs = plater.model().objects;
+    if (objs.size() != 1)             return false;   // MVP: single-object plates only
+    if (!objs[0])                     return false;
+    if (objs[0]->volumes.size() != 1) return false;   // already injected or multi-volume
+
+    const auto& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    bool effective = print_cfg.opt_bool("enable_support");
+    if (objs[0]->config.has("enable_support"))
+        effective = objs[0]->config.get().opt_bool("enable_support");
+
+    return effective;
+}
+
+static boost::filesystem::path belt_supports_find_script()
+{
+    namespace fs = boost::filesystem;
+    if (const char* env = std::getenv("ORCABELT_VALIDATION_DIR")) {
+        if (*env) {
+            fs::path p = fs::path(env) / "support_preprocess.py";
+            if (fs::exists(p)) return p;
+        }
+    }
+    fs::path res = fs::path(Slic3r::resources_dir()).parent_path() / "validation" / "support_preprocess.py";
+    if (fs::exists(res)) return res;
+    fs::path dev = fs::path(Slic3r::resources_dir()).parent_path().parent_path() / "validation" / "support_preprocess.py";
+    if (fs::exists(dev)) return dev;
+    fs::path hard = "/home/user/projects/ORCA_BELT/validation/support_preprocess.py";
+    if (fs::exists(hard)) return hard;
+    return fs::path{};
+}
+
+static void belt_supports_trace(const std::string& msg)
+{
+    const bool is_error = msg.rfind("ERROR", 0) == 0 || msg.rfind("EXCEPTION", 0) == 0;
+    if (is_error)
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS] " << msg;
+    else
+        BOOST_LOG_TRIVIAL(info)    << "[BELT_SUPPORTS] " << msg;
+
+    if (const char* e = std::getenv("ORCABELT_C2_TRACE"); e && *e) {
+        try {
+            std::ofstream f("/tmp/orcabelt_c2.trace", std::ios::app);
+            f << "[" << std::time(nullptr) << "] " << msg << "\n";
+        } catch (...) {}
+    }
+}
+
+static bool belt_supports_inject_volumes(Plater& plater)
+{
+    namespace fs = boost::filesystem;
+    belt_supports_trace("inject_volumes called");
+
+    fs::path script = belt_supports_find_script();
+    if (script.empty()) {
+        belt_supports_trace("ERROR: support_preprocess.py not found");
+        return false;
+    }
+    belt_supports_trace("script: " + script.string());
+
+    auto ts = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch()).count());
+    fs::path tmp_in  = fs::temp_directory_path() / ("orcabelt_pre_"  + ts + ".3mf");
+    fs::path tmp_out = fs::temp_directory_path() / ("orcabelt_post_" + ts + ".3mf");
+
+    int ret = plater.export_3mf(tmp_in, SaveStrategy::SplitModel | SaveStrategy::Silence, -1, nullptr);
+    if (ret < 0 || !fs::exists(tmp_in)) {
+        belt_supports_trace("ERROR: export_3mf failed, rc=" + std::to_string(ret));
+        return false;
+    }
+    belt_supports_trace("exported 3mf to " + tmp_in.string());
+
+    wxString cmd = wxString::Format("python3 \"%s\" \"%s\" -o \"%s\"",
+        wxString::FromUTF8(script.string()),
+        wxString::FromUTF8(tmp_in.string()),
+        wxString::FromUTF8(tmp_out.string()));
+    belt_supports_trace("spawn: " + cmd.ToStdString());
+    long rc = wxExecute(cmd, wxEXEC_SYNC | wxEXEC_HIDE_CONSOLE);
+    belt_supports_trace("wxExecute rc=" + std::to_string(rc) + " tmp_out_exists=" + std::to_string(fs::exists(tmp_out)));
+
+    boost::system::error_code ec;
+    fs::remove(tmp_in, ec);
+
+    if (rc != 0 || !fs::exists(tmp_out)) {
+        belt_supports_trace("ERROR: preprocess failed, rc=" + std::to_string(rc));
+        return false;
+    }
+
+    // Log output size for diagnosis
+    if (fs::exists(tmp_out)) {
+        belt_supports_trace("tmp_out size=" + std::to_string(fs::file_size(tmp_out, ec)));
+    }
+
+    Model supported;
+    try {
+        DynamicPrintConfig cfg;
+        ConfigSubstitutionContext subst{ForwardCompatibilitySubstitutionRule::EnableSilent};
+        supported = Model::read_from_file(tmp_out.string(), &cfg, &subst,
+                                          LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel);
+    } catch (const std::exception& e) {
+        belt_supports_trace(std::string("ERROR: read_from_file threw: ") + e.what());
+        fs::remove(tmp_out, ec);
+        return false;
+    }
+    fs::remove(tmp_out, ec);
+
+    ModelObject* dst = plater.model().objects[0];
+
+    // Always disable per-object enable_support to prevent Orca's native
+    // tree-support generator from running on belt printers — its output
+    // produces virtual-space columns that fail gate R7 (see memory #669).
+    // This is set regardless of whether the script produced extra volumes.
+    dst->config.set_key_value("enable_support", new ConfigOptionBool(false));
+
+    if (supported.objects.empty() || supported.objects[0]->volumes.size() < 2) {
+        belt_supports_trace("INFO: script produced no extra volumes (objects="
+                            + std::to_string(supported.objects.size())
+                            + "); slicing without supports, native Orca support disabled");
+        return true;
+    }
+
+    ModelObject* src = supported.objects[0];
+    size_t before = dst->volumes.size();
+    for (size_t i = 1; i < src->volumes.size(); ++i)
+        dst->add_volume(*src->volumes[i]);
+    dst->invalidate_bounding_box();
+
+    belt_supports_trace("OK injected " + std::to_string(dst->volumes.size() - before)
+                        + " volumes (total=" + std::to_string(dst->volumes.size())
+                        + "), per-object enable_support=false");
+    return true;
+}
+
 //BBS: add multiple plate reslice logic
 void Plater::reslice()
 {
@@ -15226,7 +15379,7 @@ void Plater::reslice()
     // and notify user that he should leave it first.
     if (get_view3D_canvas3D()->get_gizmos_manager().is_in_editing_mode(true))
         return;
-    
+
     // Stop the running (and queued) UI jobs and only proceed if they actually
     // get stopped.
     unsigned timeout_ms = 10000;
@@ -15234,6 +15387,27 @@ void Plater::reslice()
         BOOST_LOG_TRIVIAL(error) << "Could not stop UI job within "
                                  << timeout_ms << " milliseconds timeout!";
         return;
+    }
+
+    // Orca belt: pre-process supports via external script (C2 v2).
+    // Checks both preset-level and per-object enable_support.
+    // Idempotent: objects[0]->volumes.size()>1 ⇒ already injected.
+    {
+        bool sp = belt_supports_should_preprocess(*this);
+        size_t n_obj  = model().objects.size();
+        size_t n_vol0 = (n_obj > 0 && model().objects[0]) ? model().objects[0]->volumes.size() : 0;
+        belt_supports_trace("reslice hook: should_preprocess=" + std::to_string(sp)
+                            + " objects=" + std::to_string(n_obj)
+                            + " vol0="    + std::to_string(n_vol0));
+        if (sp) {
+            try {
+                belt_supports_inject_volumes(*this);
+            } catch (const std::exception& e) {
+                belt_supports_trace(std::string("EXCEPTION: ") + e.what());
+            } catch (...) {
+                belt_supports_trace("EXCEPTION: unknown");
+            }
+        }
     }
 
     // Orca: regenerate CalibPressureAdvancePattern custom G-code to apply changes
