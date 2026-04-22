@@ -15252,30 +15252,39 @@ static bool belt_supports_should_preprocess(Plater& plater)
 {
     const auto& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
     auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
-    if (!ps_opt || ps_opt->value != psBelt)
-        return false;
-
-    const auto& objs = plater.model().objects;
-    if (objs.size() != 1)             return false;   // MVP: single-object plates only
-    if (!objs[0])                     return false;
-    if (objs[0]->volumes.size() != 1) return false;   // already injected or multi-volume
-
-    // Only preprocess when the mesh actually needs a keel wedge: centered-origin
-    // meshes that sit with part of their base below Z=0 after import. Flat-base
-    // meshes (benchy, boxes) have raw_mesh Z_min ≈ 0 and print their first layer
-    // directly on the belt — no wedge needed, and injecting one produces a 5+mm
-    // ramp that users (rightly) read as an unwanted "raft".
-    //
-    // Gate: skip preprocessing when the model's raw bounding box Z_min is >= a
-    // small tolerance of zero. Only process centered-origin meshes (Z_min < -EPS).
-    const BoundingBoxf3 raw_bbox = objs[0]->raw_mesh_bounding_box();
-    const double keel_z_threshold_mm = -0.05;  // flat-base tolerance
-    if (raw_bbox.min.z() >= keel_z_threshold_mm) {
-        BOOST_LOG_TRIVIAL(info) << "[BELT_SUPPORTS] skip: flat-base mesh (raw Z_min=" << raw_bbox.min.z() << "mm, no keel wedge needed)";
+    if (!ps_opt || ps_opt->value != psBelt) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: not-belt";
         return false;
     }
 
-    return true;   // belt + single object + single volume + centered-origin: preprocess
+    const auto& objs = plater.model().objects;
+    if (objs.size() != 1)             { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: objs.size=" << objs.size(); return false; }
+    if (!objs[0])                     return false;
+    if (objs[0]->volumes.size() != 1) { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: volumes.size=" << objs[0]->volumes.size() << " (already injected or multi)"; return false; }
+
+    // Only preprocess when the model actually needs a keel wedge. We check the
+    // *instance-transformed* world bbox — what the user sees on the bed — rather
+    // than raw_mesh_bounding_box, because many STLs are authored with centered
+    // origin (mesh Z_min = -H/2) and the auto keel-align shifts the instance so
+    // the base lands at Z_world = 0. Using raw_mesh would incorrectly flag every
+    // centered-origin mesh as "needs wedge" even after correct placement.
+    //
+    // Flat-base world ≈ Z_world_min ≈ 0 → keel already on belt, skip wedge.
+    // Only centered / suspended meshes (Z_world_min < -EPS after transform) get
+    // the wedge injection — those are the R11-prone cases.
+    if (objs[0]->instances.empty()) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no instances";
+        return false;
+    }
+    const BoundingBoxf3 world_bbox = objs[0]->instance_bounding_box(0, false);
+    const double keel_z_threshold_mm = -0.05;
+    if (world_bbox.min.z() >= keel_z_threshold_mm) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: flat-base world (Z_min=" << world_bbox.min.z() << "mm, keel on belt)";
+        return false;
+    }
+
+    BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] PROCEED: world Z_min=" << world_bbox.min.z() << "mm (keel below belt surface)";
+    return true;
 }
 
 static boost::filesystem::path belt_supports_find_script()
