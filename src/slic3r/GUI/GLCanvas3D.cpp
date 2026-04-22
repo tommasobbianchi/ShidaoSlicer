@@ -3492,7 +3492,19 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
         { m_labels.show(!m_labels.is_shown()); m_dirty = true; break; }
         case '0': {
             select_view("plate");
-            zoom_to_bed();
+            // ORCA_BELT: zoom_to_bed on a 2000mm belt plate shrinks the object to
+            // a few pixels. Zoom to the actual volumes instead when loaded, and
+            // only fall back to the bed when the plate is empty.
+            bool is_belt_printer = false;
+            if (auto* bundle = wxGetApp().preset_bundle) {
+                const auto& pc = bundle->printers.get_edited_preset().config;
+                if (auto* ps = pc.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                    is_belt_printer = (ps->value == psBelt);
+            }
+            if (is_belt_printer && volumes_bounding_box(true).defined)
+                zoom_to_volumes();
+            else
+                zoom_to_bed();
             break; }
         case '1': { select_view("top"); break; }
         case '2': { select_view("bottom"); break; }
@@ -4635,7 +4647,17 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
                             camera.rotate_on_sphere_with_target(rot.x(), rot.y(), rotate_limit, m_rotation_center);
                         } else {
                             Vec3d rotate_target = Vec3d::Zero();
-                            if (m_canvas_type == ECanvasType::CanvasPreview) {
+                            // ORCA_BELT: belt plates are 2000mm long — orbiting around
+                            // plate center puts the rotation pivot ~1m away from the
+                            // printed object, so even small drags swing the object
+                            // wildly off-screen. Prefer objects centroid on belt.
+                            bool is_belt_printer = false;
+                            if (auto* bundle = wxGetApp().preset_bundle) {
+                                const auto& pc = bundle->printers.get_edited_preset().config;
+                                if (auto* ps = pc.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                                    is_belt_printer = (ps->value == psBelt);
+                            }
+                            if (m_canvas_type == ECanvasType::CanvasPreview && !is_belt_printer) {
                                 PartPlate *plate = wxGetApp().plater()->get_partplate_list().get_curr_plate();
                                 if (plate)
                                     rotate_target = plate->get_bounding_box().center();
