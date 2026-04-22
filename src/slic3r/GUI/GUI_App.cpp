@@ -28,6 +28,13 @@
 #include <cstdlib>
 #include <regex>
 #include <thread>
+// ORCA_BELT: crash-visibility plumbing (GLib log writer + sig handlers)
+#include <signal.h>
+#include <execinfo.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cstring>
+#include <glib.h>
 #include <string_view>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -2328,8 +2335,69 @@ std::string get_system_info()
     return out.str();
 }
 
+// ORCA_BELT: route GLib-GObject-CRITICAL (e.g. "invalid cast from 'wxPizza'
+// to 'GtkCellLayout'") into our Boost log at `info` instead of letting GLib
+// print to stderr and potentially abort() when G_DEBUG=fatal-criticals is
+// set by distro packaging. The invalid casts originate from wxGTK3 during
+// wxNotebook page transitions and wxBitmapComboBox rebuilds — they're
+// symptomatic, not fatal, and we want the app to stay alive so the user
+// can keep working even when the criticals spray occurs.
+static GLogWriterOutput orcabelt_glog_writer(GLogLevelFlags log_level,
+                                             const GLogField* fields,
+                                             gsize n_fields,
+                                             gpointer)
+{
+    const char* msg = nullptr;
+    const char* domain = "glib";
+    for (gsize i = 0; i < n_fields; ++i) {
+        if (g_strcmp0(fields[i].key, "MESSAGE") == 0)
+            msg = static_cast<const char*>(fields[i].value);
+        else if (g_strcmp0(fields[i].key, "GLIB_DOMAIN") == 0)
+            domain = static_cast<const char*>(fields[i].value);
+    }
+    if (log_level & (G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING)) {
+        BOOST_LOG_TRIVIAL(info) << "[" << domain << "] "
+                                << (msg ? msg : "(no message)");
+    } else {
+        BOOST_LOG_TRIVIAL(debug) << "[" << domain << "] "
+                                 << (msg ? msg : "(no message)");
+    }
+    return G_LOG_WRITER_HANDLED;   // do NOT escalate to abort()
+}
+
+// ORCA_BELT: SIGSEGV/SIGABRT handler that writes a stack trace to
+// /tmp/orcabelt_crash_<pid>.log before the default handler runs. We don't
+// try to resume execution (that's undefined after SIGSEGV) but we do get
+// a post-mortem log the user can paste back to us for root-causing.
+static void orcabelt_crash_handler(int sig)
+{
+    char path[128];
+    snprintf(path, sizeof(path), "/tmp/orcabelt_crash_%d.log", (int)getpid());
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        const char* hdr = "*** OrcaBelt crash — backtrace ***\n";
+        write(fd, hdr, strlen(hdr));
+        char sig_line[64];
+        snprintf(sig_line, sizeof(sig_line), "signal=%d\n", sig);
+        write(fd, sig_line, strlen(sig_line));
+        void* frames[64];
+        int n = backtrace(frames, 64);
+        backtrace_symbols_fd(frames, n, fd);
+        close(fd);
+    }
+    // Re-raise with default handler so core dump / debugger can engage.
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 bool GUI_App::on_init_inner()
 {
+    // ORCA_BELT: install crash-visibility handlers BEFORE any GTK/wx init.
+    g_log_set_writer_func(orcabelt_glog_writer, nullptr, nullptr);
+    signal(SIGSEGV, orcabelt_crash_handler);
+    signal(SIGABRT, orcabelt_crash_handler);
+    signal(SIGBUS,  orcabelt_crash_handler);
+
     wxLog::SetActiveTarget(new wxBoostLog());
 #if BBL_RELEASE_TO_PUBLIC
     wxLog::SetLogLevel(wxLOG_Message);

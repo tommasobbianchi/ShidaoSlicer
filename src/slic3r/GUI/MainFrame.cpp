@@ -1243,13 +1243,17 @@ void MainFrame::show_device(bool bBBLPrinter) {
 #endif // _MSW_DARK_MODE
 
     } else {
-        // ORCA_BELT: for non-Bambu printers (Klipper/Moonraker/etc.), the
-        // webview-based Device tab proxies Fluidd/Mainsail. wxWebViewWebKit
-        // crashes the app on certain Moonraker error states (e.g. websocket
-        // drop / "Klippy Not Connected" JS page). Until we harden the backend,
-        // hide the Device tab entirely — users can open Fluidd in a normal
-        // browser and upload via Plater's "Send to printer" button (HTTP
-        // OctoPrint-compat API on Moonraker), which doesn't need the webview.
+        // ORCA_BELT: non-Bambu printer (Klipper/Moonraker/OctoPrint/etc.).
+        // Restore the WebView-backed Device tab so the user can reach
+        // Fluidd/Mainsail from inside OrcaBelt and upload+start prints
+        // without leaving the slicer. PrinterWebView is lazily created on
+        // first show_device(false) call, wrapped in a try/catch to keep a
+        // failing WebView backend from taking down the whole app (previous
+        // symptom was wxWebViewWebKit null-deref on a Moonraker error page).
+        if ((idx = m_tabpanel->FindPage(m_monitor)) != wxNOT_FOUND) {
+            m_monitor->Show(false);
+            m_tabpanel->RemovePage(idx);
+        }
         if ((idx = m_tabpanel->FindPage(m_calibration)) != wxNOT_FOUND) {
             m_calibration->Show(false);
             m_tabpanel->RemovePage(idx);
@@ -1258,15 +1262,32 @@ void MainFrame::show_device(bool bBBLPrinter) {
             m_multi_machine->Show(false);
             m_tabpanel->RemovePage(idx);
         }
-        if ((idx = m_tabpanel->FindPage(m_monitor)) != wxNOT_FOUND) {
-            m_monitor->Show(false);
-            m_tabpanel->RemovePage(idx);
-        }
-        if (m_printer_view != nullptr) {
-            if ((idx = m_tabpanel->FindPage(m_printer_view)) != wxNOT_FOUND) {
-                m_printer_view->Show(false);
-                m_tabpanel->RemovePage(idx);
+
+        if (m_printer_view && m_tabpanel->FindPage(m_printer_view) != wxNOT_FOUND)
+            return;  // already installed
+
+        if (m_printer_view == nullptr) {
+            try {
+                m_printer_view = new PrinterWebView(m_tabpanel);
+                m_printer_view->SetBackgroundColour(*wxWHITE);
+                Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent& evt) {
+                    wxString url = evt.GetString();
+                    wxString key = evt.GetAPIkey();
+                    if (m_printer_view) m_printer_view->load_url(url, key);
+                });
+            } catch (const std::exception& e) {
+                BOOST_LOG_TRIVIAL(error) << "PrinterWebView init failed: " << e.what();
+                m_printer_view = nullptr;
+            } catch (...) {
+                BOOST_LOG_TRIVIAL(error) << "PrinterWebView init failed: unknown";
+                m_printer_view = nullptr;
             }
+        }
+        if (m_printer_view) {
+            m_printer_view->Show(false);
+            m_tabpanel->InsertPage(tpMonitor, m_printer_view, _L("Device"),
+                std::string("tab_monitor_active"),
+                std::string("tab_monitor_active"), false);
         }
     }
 }
