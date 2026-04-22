@@ -15260,7 +15260,22 @@ static bool belt_supports_should_preprocess(Plater& plater)
     if (!objs[0])                     return false;
     if (objs[0]->volumes.size() != 1) return false;   // already injected or multi-volume
 
-    return true;   // belt + single object + single volume: always preprocess
+    // Only preprocess when the mesh actually needs a keel wedge: centered-origin
+    // meshes that sit with part of their base below Z=0 after import. Flat-base
+    // meshes (benchy, boxes) have raw_mesh Z_min ≈ 0 and print their first layer
+    // directly on the belt — no wedge needed, and injecting one produces a 5+mm
+    // ramp that users (rightly) read as an unwanted "raft".
+    //
+    // Gate: skip preprocessing when the model's raw bounding box Z_min is >= a
+    // small tolerance of zero. Only process centered-origin meshes (Z_min < -EPS).
+    const BoundingBoxf3 raw_bbox = objs[0]->raw_mesh_bounding_box();
+    const double keel_z_threshold_mm = -0.05;  // flat-base tolerance
+    if (raw_bbox.min.z() >= keel_z_threshold_mm) {
+        BOOST_LOG_TRIVIAL(info) << "[BELT_SUPPORTS] skip: flat-base mesh (raw Z_min=" << raw_bbox.min.z() << "mm, no keel wedge needed)";
+        return false;
+    }
+
+    return true;   // belt + single object + single volume + centered-origin: preprocess
 }
 
 static boost::filesystem::path belt_supports_find_script()
