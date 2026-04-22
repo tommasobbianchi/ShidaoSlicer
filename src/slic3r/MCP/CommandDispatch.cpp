@@ -846,9 +846,9 @@ void CommandDispatch::register_viewport_commands() {
     register_command("viewport.select_tab", [this](const json& params) -> json {
         return call_on_gui_thread([&]() -> json {
             std::string tab = params.value("tab", "");
-            static const std::set<std::string> valid = {"3D", "Preview", "Assemble", "Home"};
+            static const std::set<std::string> valid = {"3D", "Preview", "Assemble", "Home", "Device"};
             if (valid.count(tab) == 0) {
-                return json{{"error", "tab must be one of: 3D, Preview, Assemble, Home"}};
+                return json{{"error", "tab must be one of: 3D, Preview, Assemble, Home, Device"}};
             }
             auto* plater = wxGetApp().plater();
             auto* mainframe = wxGetApp().mainframe;
@@ -863,18 +863,26 @@ void CommandDispatch::register_viewport_commands() {
             } else if (tab == "Preview") {
                 mainframe->select_tab(size_t(MainFrame::tpPreview));
                 plater->select_view_3D("Preview");
+            } else if (tab == "Device") {
+                // ORCA_BELT: Device tab (Klipper/Moonraker panel). The panel is
+                // only inserted for non-Bambu printers via show_device(false);
+                // if it's missing, fall back to the Home tab.
+                mainframe->select_tab(size_t(MainFrame::tpMonitor));
             } else {  // "3D" or "Assemble"
                 mainframe->select_tab(size_t(MainFrame::tp3DEditor));
                 plater->select_view_3D(tab);
             }
 
             // Render a frame so the newly-active canvas is drawn.
-            auto* canvas = (tab == "Preview")
-                ? plater->get_preview_canvas3D()
-                : plater->get_view3D_canvas3D();
-            if (canvas) {
-                canvas->set_as_dirty();
-                canvas->render();
+            // Device/Home tabs have no 3D canvas — skip the redraw.
+            if (tab != "Device" && tab != "Home") {
+                auto* canvas = (tab == "Preview")
+                    ? plater->get_preview_canvas3D()
+                    : plater->get_view3D_canvas3D();
+                if (canvas) {
+                    canvas->set_as_dirty();
+                    canvas->render();
+                }
             }
             return json{{"tab", tab}};
         });

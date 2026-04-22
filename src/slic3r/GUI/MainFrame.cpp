@@ -1244,12 +1244,16 @@ void MainFrame::show_device(bool bBBLPrinter) {
 
     } else {
         // ORCA_BELT: non-Bambu printer (Klipper/Moonraker/OctoPrint/etc.).
-        // Restore the WebView-backed Device tab so the user can reach
-        // Fluidd/Mainsail from inside OrcaBelt and upload+start prints
-        // without leaving the slicer. PrinterWebView is lazily created on
-        // first show_device(false) call, wrapped in a try/catch to keep a
-        // failing WebView backend from taking down the whole app (previous
-        // symptom was wxWebViewWebKit null-deref on a Moonraker error page).
+        // The WebView-backed Device tab (PrinterWebView → wxWebViewWebKit)
+        // reproducibly SIGSEGVs inside libjavascriptcoregtk-4.1 when Fluidd
+        // or Mainsail executes its startup JS. Confirmed 2026-04-22 with
+        // /tmp/orcabelt_crash_1804871.log (stack: libjavascriptcoregtk
+        // → gtk_main loop → orca-slicer event handler). Since no try/catch
+        // can save us from a crash inside the JS VM thread, we install a
+        // lightweight native panel instead that opens Fluidd in the user's
+        // default external browser via wxLaunchDefaultBrowser. This keeps
+        // Orca alive and still gives the user one-click access to the
+        // printer's web UI.
         if ((idx = m_tabpanel->FindPage(m_monitor)) != wxNOT_FOUND) {
             m_monitor->Show(false);
             m_tabpanel->RemovePage(idx);
@@ -1263,32 +1267,62 @@ void MainFrame::show_device(bool bBBLPrinter) {
             m_tabpanel->RemovePage(idx);
         }
 
-        if (m_printer_view && m_tabpanel->FindPage(m_printer_view) != wxNOT_FOUND)
+        if (m_klipper_panel && m_tabpanel->FindPage(m_klipper_panel) != wxNOT_FOUND)
             return;  // already installed
 
-        if (m_printer_view == nullptr) {
-            try {
-                m_printer_view = new PrinterWebView(m_tabpanel);
-                m_printer_view->SetBackgroundColour(*wxWHITE);
-                Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent& evt) {
-                    wxString url = evt.GetString();
-                    wxString key = evt.GetAPIkey();
-                    if (m_printer_view) m_printer_view->load_url(url, key);
-                });
-            } catch (const std::exception& e) {
-                BOOST_LOG_TRIVIAL(error) << "PrinterWebView init failed: " << e.what();
-                m_printer_view = nullptr;
-            } catch (...) {
-                BOOST_LOG_TRIVIAL(error) << "PrinterWebView init failed: unknown";
-                m_printer_view = nullptr;
-            }
+        if (m_klipper_panel == nullptr) {
+            m_klipper_panel = new wxPanel(m_tabpanel, wxID_ANY);
+            m_klipper_panel->SetBackgroundColour(*wxBLACK);
+            auto* v = new wxBoxSizer(wxVERTICAL);
+
+            auto* title = new wxStaticText(m_klipper_panel, wxID_ANY,
+                _L("Klipper / Moonraker printer"));
+            title->SetForegroundColour(*wxWHITE);
+            wxFont tfont = title->GetFont(); tfont.SetPointSize(14);
+            title->SetFont(tfont);
+
+            m_klipper_status = new wxStaticText(m_klipper_panel, wxID_ANY,
+                _L("No printer configured. Set Print host in printer preset."));
+            m_klipper_status->SetForegroundColour(wxColour(180, 180, 180));
+
+            auto* btn_open = new wxButton(m_klipper_panel, wxID_ANY,
+                _L("Open web interface (Fluidd / Mainsail) in browser"));
+            btn_open->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+                auto& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+                wxString url = cfg.opt_string("print_host_webui").empty()
+                    ? cfg.opt_string("print_host")
+                    : cfg.opt_string("print_host_webui");
+                if (url.IsEmpty()) {
+                    wxMessageBox(_L("No print_host configured in the active printer preset."),
+                                 _L("Klipper Device"), wxOK | wxICON_INFORMATION, this);
+                    return;
+                }
+                if (!url.Lower().StartsWith("http"))
+                    url = "http://" + url;
+                wxLaunchDefaultBrowser(url);
+            });
+
+            auto* btn_refresh = new wxButton(m_klipper_panel, wxID_ANY,
+                _L("Refresh status"));
+            btn_refresh->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+                this->refresh_klipper_status();
+            });
+
+            v->AddSpacer(20);
+            v->Add(title,       0, wxALIGN_CENTER | wxALL, 10);
+            v->Add(m_klipper_status, 0, wxALIGN_CENTER | wxALL, 6);
+            v->AddSpacer(20);
+            v->Add(btn_open,    0, wxALIGN_CENTER | wxALL, 6);
+            v->Add(btn_refresh, 0, wxALIGN_CENTER | wxALL, 6);
+            v->AddStretchSpacer(1);
+            m_klipper_panel->SetSizer(v);
         }
-        if (m_printer_view) {
-            m_printer_view->Show(false);
-            m_tabpanel->InsertPage(tpMonitor, m_printer_view, _L("Device"),
-                std::string("tab_monitor_active"),
-                std::string("tab_monitor_active"), false);
-        }
+
+        m_klipper_panel->Show(false);
+        m_tabpanel->InsertPage(tpMonitor, m_klipper_panel, _L("Device"),
+            std::string("tab_monitor_active"),
+            std::string("tab_monitor_active"), false);
+        this->refresh_klipper_status();
     }
 }
 
@@ -3967,6 +4001,69 @@ void MainFrame::load_printer_url()
 }
 
 bool MainFrame::is_printer_view() const { return m_tabpanel->GetSelection() == TabPosition::tpMonitor; }
+
+// ORCA_BELT: refresh the Klipper Device panel's status line. Called when the
+// panel is installed (show_device(false)) and when the user clicks "Refresh
+// status". Does a short HTTP GET to Moonraker's /printer/info endpoint,
+// wrapped with a 3-second timeout so a dead printer can't freeze the UI.
+void MainFrame::refresh_klipper_status()
+{
+    if (!m_klipper_status)
+        return;
+
+    auto& cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    wxString host = cfg.opt_string("print_host");
+    if (host.IsEmpty()) {
+        m_klipper_status->SetLabel(_L("No print_host configured in the active printer preset."));
+        return;
+    }
+    if (!host.Lower().StartsWith("http"))
+        host = "http://" + host;
+
+    // Non-blocking HTTP probe — run in detached thread, update label via CallAfter.
+    std::string probe_url = host.ToStdString();
+    if (!probe_url.empty() && probe_url.back() == '/')
+        probe_url.pop_back();
+    probe_url += "/printer/info";
+
+    m_klipper_status->SetLabel(_L("Querying printer…"));
+    auto* panel = m_klipper_panel;
+    auto* label = m_klipper_status;
+    std::thread([panel, label, probe_url]() {
+        std::string response;
+        // Use the simplest blocking HTTP we have — shell out to curl with a
+        // short timeout to stay independent of Orca's PrintHost queue.
+        std::string cmd = "curl -sf -m 3 '" + probe_url + "' 2>/dev/null";
+        FILE* f = popen(cmd.c_str(), "r");
+        if (f) {
+            char buf[1024];
+            while (fgets(buf, sizeof(buf), f)) response += buf;
+            pclose(f);
+        }
+        wxTheApp->CallAfter([panel, label, response]() {
+            if (!panel || !label) return;
+            if (response.empty()) {
+                label->SetLabel(_L("Printer offline or unreachable (HTTP timeout)."));
+                label->SetForegroundColour(wxColour(220, 80, 80));
+            } else {
+                // crude parse — we only need a quick human-readable confirmation.
+                std::string state = "?";
+                auto pos = response.find("\"state\"");
+                if (pos != std::string::npos) {
+                    auto colon = response.find(':', pos);
+                    auto q1 = response.find('"', colon);
+                    auto q2 = response.find('"', q1 + 1);
+                    if (q1 != std::string::npos && q2 != std::string::npos)
+                        state = response.substr(q1 + 1, q2 - q1 - 1);
+                }
+                label->SetLabel(wxString::Format(_L("Klippy state: %s"),
+                                                 wxString::FromUTF8(state.c_str())));
+                label->SetForegroundColour(wxColour(100, 200, 100));
+            }
+            panel->Layout();
+        });
+    }).detach();
+}
 
 
 void MainFrame::refresh_plugin_tips()

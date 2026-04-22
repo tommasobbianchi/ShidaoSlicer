@@ -277,7 +277,7 @@ std::vector<McpToolDef> get_all_tool_definitions()
         {
             {"type", "object"},
             {"properties", {
-                {"tab", {{"type", "string"}, {"enum", json::array({"3D", "Preview", "Assemble"})}, {"description", "Which tab to display"}}}
+                {"tab", {{"type", "string"}, {"enum", json::array({"3D", "Preview", "Assemble", "Device"})}, {"description", "Which tab to display"}}}
             }},
             {"required", json::array({"tab"})}
         },
