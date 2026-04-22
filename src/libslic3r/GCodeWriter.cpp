@@ -69,7 +69,11 @@ void GCodeWriter::set_extruders(std::vector<unsigned int> extruder_ids)
     /*  we enable support for multiple extruder if any extruder greater than 0 is used
         (even if prints only uses that one) since we need to output Tx commands
         first extruder has index 0 */
-    this->multiple_extruders = (*std::max_element(extruder_ids.begin(), extruder_ids.end())) > 0;
+    // Guard: auto-slice triggered mid-transform can hand us an empty extruder_ids vector
+    // (tool_ordering.all_extruders() returns empty during transient Print re-evaluation).
+    // std::max_element on empty range dereferences end() → SIGSEGV in BackgroundSlicingProcess thread.
+    this->multiple_extruders = !extruder_ids.empty() &&
+        (*std::max_element(extruder_ids.begin(), extruder_ids.end())) > 0;
 }
 
 std::string GCodeWriter::preamble()
