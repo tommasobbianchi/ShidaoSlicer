@@ -2593,10 +2593,12 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         }
         if (initial_extruder_id == static_cast<unsigned int>(-1))
             // No object to print was found, cancel the G-code export.
+            // ORCA_BELT: softened "Forcing extruder 0 for debug" caused downstream
+            // GCodeWriter::toolchange -> Extruder::extruder_id() SEGV because the
+            // extruder registry was never populated. Restore upstream throw.
             {
-                BOOST_LOG_TRIVIAL(error) << "No object can be printed (sequential). Forcing extruder 0 for debug.";
-                initial_extruder_id = 0;
-                // throw Slic3r::SlicingError(_(L("No object can be printed. Maybe too small")));
+                BOOST_LOG_TRIVIAL(error) << "No object can be printed (sequential).";
+                throw Slic3r::SlicingError(_(L("No object can be printed. Maybe too small")));
             }
         // We don't allow switching of extruders per layer by Model::custom_gcode_per_print_z in sequential mode.
         // Use the extruder IDs collected from Regions.
@@ -2613,9 +2615,10 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                         max_additional_fan = temp_max_additional_fan;
         if (tool_ordering.all_extruders().empty())
             // No object to print was found, cancel the G-code export.
+            // ORCA_BELT: softened throw caused downstream toolchange SEGV. Restore.
             {
-                BOOST_LOG_TRIVIAL(error) << "No object can be printed (non-sequential). Forcing extruder 0 for debug.";
-                // throw Slic3r::SlicingError(_(L("No object can be printed. Maybe too small")));
+                BOOST_LOG_TRIVIAL(error) << "No object can be printed (non-sequential).";
+                throw Slic3r::SlicingError(_(L("No object can be printed. Maybe too small")));
             }
         has_wipe_tower = print.has_wipe_tower() && tool_ordering.has_wipe_tower();
         // Orca: support all extruder priming

@@ -3335,33 +3335,12 @@ void GCodeViewer::load_shells(const Print& print, bool initialized, bool force_p
 
     //BBS: move behind of reset_shell, to clear previous shell for empty plate
     if (print.objects().empty()) {
-        // ORCA_BELT: fall back to raw Model meshes when Print has no objects yet
-        // (pre-slice Preview). Upstream returned here leaving the Preview tab empty
-        // until a slice produced PrintObjects; belt users who inspect placement
-        // before slicing saw a bare 45° bed.
-        const ModelObjectPtrs& model_objs = wxGetApp().model().objects;
-        if (model_objs.empty())
-            return;
-        for (int object_idx = 0; object_idx < (int)model_objs.size(); ++object_idx) {
-            const ModelObject* model_obj = model_objs[object_idx];
-            std::vector<int> instance_ids;
-            instance_ids.reserve(model_obj->instances.size());
-            for (int i = 0; i < (int)model_obj->instances.size(); ++i)
-                if (model_obj->instances[i]->is_printable())
-                    instance_ids.push_back(i);
-            if (instance_ids.empty())
-                continue;
-            m_shells.volumes.load_object(model_obj, object_idx, instance_ids, "object", initialized, false);
-        }
-        for (GLVolume* volume : m_shells.volumes.volumes) {
-            volume->zoom_to_volumes = false;
-            volume->color.a(0.5f);
-            volume->force_native_color = true;
-            volume->set_render_color();
-        }
-        m_shells.print_id = print.id().id;
-        m_shells.print_modify_count = print.get_modified_count();
-        m_shells.previewing = true;
+        // no shells, return
+        // ORCA_BELT note: attempted a fallback to load shells from Model directly
+        // (Preview tab pre-slice), but the resulting GLVolumes appeared at raw
+        // model coords while the canvas applies belt_transform only to the bed —
+        // producing oversized artifacts around the inclined plate. Reverted.
+        // Preview is intentionally empty until a slice populates PrintObjects.
         return;
     }
     // adds objects' volumes
