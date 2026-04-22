@@ -693,7 +693,7 @@ void GCodeViewer::SequentialView::render(const bool has_render_path, float legen
     if (wxGetApp().is_editor())
         bottom -= wxGetApp().plater()->get_view_toolbar().get_height();
 #endif
-    if (has_render_path)
+    if (has_render_path && !gcode_ids.empty() && current.last < gcode_ids.size())
         gcode_window.render(legend_height + 2, std::max(10.f, (float)canvas_height - 40), (float)canvas_width - (float)right_margin, static_cast<uint64_t>(gcode_ids[current.last]));
 }
 
