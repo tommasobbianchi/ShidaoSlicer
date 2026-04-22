@@ -2163,7 +2163,11 @@ std::pair<Preset*, bool> PresetCollection::load_external_preset(
             this->get_edited_preset().config.apply_only(cfg, keys, true);
             this->update_dirty();
             update_saved_preset_from_current_preset();
-            assert(this->get_edited_preset().is_dirty);
+            // NOTE: upstream bug — update_saved_preset_from_current_preset() resets is_dirty=false
+            // (saved becomes == current), so the original `assert(is_dirty)` here fired on every
+            // project restore with an inherited preset. Debug binary users hit SIGABRT. Soft-log.
+            if (!this->get_edited_preset().is_dirty)
+                BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << " preset " << it->name << " is not dirty after save — expected when config matches inherits";
             //BBS: set the preset to visible
             if ( !it->is_visible ) {
                 it->is_visible = true;
