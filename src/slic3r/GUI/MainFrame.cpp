@@ -1089,7 +1089,19 @@ void MainFrame::init_tabpanel() {
                 if (!m_plater->check_ams_status(m_slice_select == eSliceAll))
                     return;
                 wxPostEvent(m_plater, SimpleEvent(EVT_GLVIEWTOOLBAR_PREVIEW));
-                m_param_panel->OnActivate();
+                // ORCA_BELT: defer ParamsPanel::OnActivate() to the next event
+                // loop cycle. On GTK3 (belt builds), calling it synchronously
+                // during the notebook page-transition reproducibly emits a
+                // burst of "GLib-GObject-CRITICAL: invalid cast from 'wxPizza'
+                // to 'GtkCellLayout'" and then SIGSEGVs when Tab::OnActivate()
+                // Freeze()/activate_selected_page()/Thaw() rebuilds comboboxes
+                // while the tabpanel is still swapping pages. CallAfter lets
+                // the transition finish cleanly before the parameter panel
+                // refreshes. MCP's viewport_select_tab avoids this by never
+                // calling OnActivate at all — the crash disappears there too.
+                CallAfter([this]() {
+                    if (m_param_panel) m_param_panel->OnActivate();
+                });
             }
         }
         //else if (panel == m_param_panel)
