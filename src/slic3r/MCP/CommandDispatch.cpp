@@ -423,7 +423,14 @@ void CommandDispatch::register_model_commands() {
             }
             if (params.contains("rotate")) {
                 auto r = params["rotate"];
-                inst->set_rotation(Vec3d(r[0].get<double>(), r[1].get<double>(), r[2].get<double>()));
+                // MCP schema documents rotate as DEGREES; ModelInstance::set_rotation
+                // expects RADIANS. Convert — otherwise e.g. rotate=[0,0,90] winds up
+                // applying 90 radians (≈ 116.7° mod 2π) instead of a clean 90°.
+                constexpr double d2r = M_PI / 180.0;
+                inst->set_rotation(Vec3d(
+                    r[0].get<double>() * d2r,
+                    r[1].get<double>() * d2r,
+                    r[2].get<double>() * d2r));
             }
 
             if (params.contains("translate")) {

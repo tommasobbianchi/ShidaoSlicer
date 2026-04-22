@@ -145,13 +145,53 @@ def load_mesh_local(model_path):
     return mesh
 
 
+def _parse_item_transform(model_xml):
+    """Return (R_3x3, translation_xyz) from the first <item transform="..."/>
+    element in 3dmodel.model. 3MF uses a row-vector convention with the 12
+    numbers laid out as m00 m01 m02 m10 m11 m12 m20 m21 m22 m30 m31 m32.
+
+    For an identity rotation returns R=I and translation=(tx,ty,tz).
+    For a user rotation (e.g. 90° Z via Orca gizmo) returns the actual 3×3
+    rotation block — this is what we need to know BEFORE generating supports
+    so the keel wedge lands at the right world-corner after Orca re-applies
+    the item transform on load. Falls back to identity if no transform is
+    found (the preprocessor used to assume this).
+    """
+    m = re.search(r'<item\s+[^>]*transform="([^"]+)"', model_xml)
+    if not m:
+        return np.eye(3), np.zeros(3)
+    nums = [float(x) for x in m.group(1).split()]
+    if len(nums) < 12:
+        return np.eye(3), np.zeros(3)
+    # rows 0..2 of the 3×3 rotation block
+    R = np.array([
+        [nums[0], nums[1], nums[2]],
+        [nums[3], nums[4], nums[5]],
+        [nums[6], nums[7], nums[8]],
+    ])
+    t = np.array([nums[9], nums[10], nums[11]])
+    return R, t
+
+
 def _load_mesh_from_3mf_local(path_3mf):
     """
-    Load the primary model mesh from a 3MF in LOCAL (sub-object) coordinates.
+    Load the primary model mesh from a 3MF in LOCAL (sub-object) coordinates,
+    then apply the <item transform> rotation so the returned mesh is in
+    WORLD-rotated space (translation ignored — trafo_centered handles it).
 
-    Reads the sub-object .model file referenced in 3D/_rels/3dmodel.model.rels,
-    bypassing the item transform so support geometry is generated in the same
-    local coordinate system and gets the same transform on export.
+    Why the rotation matters: when a user rotates the object via Orca's gizmo
+    (or via MCP object_transform.rotate), Orca stores the rotation in the
+    item transform, not in the vertex data. If the preprocessor computed
+    keel_gap on unrotated vertices it would place the keel wedge at the
+    original corner, which after Orca re-applies the item transform ends up
+    somewhere OTHER than the rotated-world keel corner. Gate R11 then blocks
+    the gcode because the wedge no longer fills the Y+Z=0.283 first layer.
+
+    By applying the rotation here, downstream keel_gap / wedge geometry is
+    computed in the exact world space the slicer will see — and the caller
+    is expected to inverse-rotate any generated geometry back to local coords
+    before writing the output sub-object (so the 3MF item transform doesn't
+    re-apply the rotation a second time).
     """
     with zipfile.ZipFile(path_3mf) as z:
         rels_xml = z.read("3D/_rels/3dmodel.model.rels").decode()
@@ -160,6 +200,7 @@ def _load_mesh_from_3mf_local(path_3mf):
             raise ValueError(f"No sub-object .model found in rels of {path_3mf}")
         sub_path = m.group(1).lstrip("/")
         sub_xml = z.read(sub_path).decode()
+        model_xml = z.read("3D/3dmodel.model").decode()
 
     verts = []
     for m in re.finditer(r'vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"', sub_xml):
@@ -172,13 +213,25 @@ def _load_mesh_from_3mf_local(path_3mf):
     if not verts or not faces:
         raise ValueError(f"No geometry in sub-object {sub_path}")
 
+    V = np.array(verts, dtype=float)
+
+    # Parse + apply the rotation block of the item transform.
+    # 3MF row-vector convention: p_world = p_local · M  →  V_world = V @ R
+    R, _t = _parse_item_transform(model_xml)
+    if not np.allclose(R, np.eye(3), atol=1e-6):
+        V = V @ R
+        rot_note = f" (item rotation applied: R=\n{R})"
+    else:
+        rot_note = ""
+
     mesh = trimesh.Trimesh(
-        vertices=np.array(verts, dtype=float),
+        vertices=V,
         faces=np.array(faces, dtype=np.int64),
         process=True,
     )
+    mesh.metadata["item_rotation"] = R  # stash for later inverse-rotate on export
     print(f"Loaded 3MF local mesh: {len(mesh.vertices)} verts, "
-          f"X{mesh.bounds[:,0]} Y{mesh.bounds[:,1]} Z{mesh.bounds[:,2]}")
+          f"X{mesh.bounds[:,0]} Y{mesh.bounds[:,1]} Z{mesh.bounds[:,2]}{rot_note}")
     return mesh
 
 
@@ -1018,8 +1071,28 @@ def main():
         print("Use --compound for STL input.", file=sys.stderr)
         sys.exit(1)
 
-    # Load model in LOCAL space for overhang detection and boolean ops
+    # Load model. NOTE: for 3MF, load_mesh_local now applies any non-identity
+    # rotation from <item transform> so the returned mesh is in WORLD-rotated
+    # space. All downstream geometry (overhang detection, support columns,
+    # keel wedge) therefore also lives in WORLD-rotated space. Just before
+    # writing the output 3MF we inverse-rotate the generated geometry back to
+    # local coords — the 3MF's own <item transform> (copied from source_3mf)
+    # will re-apply the rotation at load time, putting everything back into
+    # the correct world position.
     model_local = load_mesh_local(str(model_path))
+    item_R = model_local.metadata.get("item_rotation") \
+             if hasattr(model_local, "metadata") else None
+    if item_R is None:
+        item_R = np.eye(3)
+    has_rotation = not np.allclose(item_R, np.eye(3), atol=1e-6)
+
+    def _to_local(mesh):
+        """Inverse-rotate a world-space mesh back to 3MF local-space vertices."""
+        if mesh is None or not has_rotation:
+            return mesh
+        m = mesh.copy()
+        m.vertices = m.vertices @ item_R.T  # R orthogonal, R.T == R^-1
+        return m
 
     # Adjust floor_z to the actual model bottom in local space.
     # DEFAULT_CONFIG floor_z=0.1 assumes Z_min=0. For models with Z_min≠0
@@ -1078,7 +1151,7 @@ def main():
         print("\nNo overhangs but keel gap present — emitting keel wedge only.")
         export_3mf_two_volumes(
             source_3mf=str(model_path),
-            support_local=keel_wedge,
+            support_local=_to_local(keel_wedge),
             output_path=args.output,
             infill_density="100%",
             support_wedge_local=None,
@@ -1149,12 +1222,15 @@ def main():
         support_to_export = support_main
         wedge_to_export = support_wedge
 
+    # Inverse-rotate generated meshes back to 3MF local coords. The item
+    # transform in the output 3MF still has the rotation (copied unchanged
+    # from source_3mf) and will re-rotate these sub-objects at load time.
     export_3mf_two_volumes(
         source_3mf=str(model_path),
-        support_local=support_to_export,
+        support_local=_to_local(support_to_export),
         output_path=args.output,
         infill_density=args.infill,
-        support_wedge_local=wedge_to_export,
+        support_wedge_local=_to_local(wedge_to_export),
     )
 
     print("\nDone.")
