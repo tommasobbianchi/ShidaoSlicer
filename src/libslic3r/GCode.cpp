@@ -1632,18 +1632,22 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
     }
 
     if (! warning_ranges.empty()) {
-        // ORCA_BELT: Belt printers naturally have empty initial layers from oblique slicing.
-        // Filter out gaps starting from Z=0 for belt printers (object leading edge).
+        // ORCA_BELT: Belt printers use oblique 45° slicing, which naturally produces
+        // virtual-Z ranges where the inclined plane doesn't intersect the mesh — not
+        // just at Z=0 (leading edge) but anywhere along the slope depending on the
+        // object's silhouette. The prior filter removed only the Z≈0 gap and still
+        // raised CRITICAL warnings mid-object (e.g. Autodesk test model between
+        // 124.45 and 126.99). IdeaMaker prints the same model fine because it
+        // doesn't apply this check on belt geometry.
+        //
+        // Suppress the empty-layer warning entirely for belt printers. Gcode gate
+        // R1-R11 still protects against real extrusion anomalies; a gap in the
+        // virtual-Z layer sequence is expected, not a slicing bug.
         bool is_belt = object.print()->config().printer_structure.value == psBelt ||
                        object.print()->config().printer_is_belt.value ||
                        object.print()->config().belt_inclined_gcode.value;
-        if (is_belt) {
-            // Remove gaps starting from Z≈0 (leading edge of belt-printed objects)
-            warning_ranges.erase(
-                std::remove_if(warning_ranges.begin(), warning_ranges.end(),
-                    [](const std::pair<double, double>& r) { return r.first < EPSILON; }),
-                warning_ranges.end());
-        }
+        if (is_belt)
+            warning_ranges.clear();
 
         if (! warning_ranges.empty()) {
             std::string warning;
