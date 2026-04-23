@@ -3491,13 +3491,10 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
 #endif /* __APPLE__ */
         { m_labels.show(!m_labels.is_shown()); m_dirty = true; break; }
         case '0': {
-            // ORCA_BELT: point the camera target at the volumes centroid BEFORE
-            // rotating. select_view builds the 3/4 look-at from the current
-            // m_target, so if the target is still at bed center (~Y=1000 on
-            // belt) the rotation ends up framing empty plate, and the later
-            // orbit pivot update drags the view back off the model. Update
-            // target first, then set the orientation, then zoom — this stays
-            // sticky across subsequent interactions.
+            // ORCA_BELT: frame the actual object on belt printers, not the
+            // 2000mm plate. Compute a focus box from whichever canvas we're
+            // on — Prepare has volumes, Preview has shells / toolpaths; any
+            // of those, if defined, is a better orbit center than bed center.
             bool is_belt_printer = false;
             if (auto* bundle = wxGetApp().preset_bundle) {
                 const auto& pc = bundle->printers.get_edited_preset().config;
@@ -3505,14 +3502,33 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
                     is_belt_printer = (ps->value == psBelt);
             }
             if (is_belt_printer) {
-                const BoundingBoxf3 vbb = volumes_bounding_box(true);
-                if (vbb.defined)
-                    wxGetApp().plater()->get_camera().set_target(vbb.center());
+                BoundingBoxf3 focus_box = volumes_bounding_box(true);
+                if (!focus_box.defined) {
+                    const BoundingBoxf3& shell_bb = m_gcode_viewer.get_shell_bounding_box();
+                    if (shell_bb.defined) focus_box = shell_bb;
+                }
+                if (!focus_box.defined) {
+                    const BoundingBoxf3& tp_bb = m_gcode_viewer.get_max_bounding_box();
+                    if (tp_bb.defined && tp_bb.max_size() > 0.f) focus_box = tp_bb;
+                }
+                auto& cam = wxGetApp().plater()->get_camera();
+                // Set target BEFORE select_view — the rotation is built from m_target.
+                if (focus_box.defined)
+                    cam.set_target(focus_box.center());
                 select_view("plate");
-                if (vbb.defined)
-                    zoom_to_volumes();
-                else
+                if (focus_box.defined) {
+                    cam.zoom_to_box(focus_box);  // direct, bypasses the "filter" path of zoom_to_volumes
+                    // Re-set the target in case zoom_to_box nudged it, so a
+                    // subsequent mouse drag uses our focus point as pivot
+                    // instead of the plate center.
+                    cam.set_target(focus_box.center());
+                    m_dirty = true;
+                } else {
                     zoom_to_bed();
+                }
+                // Force immediate repaint so the change is visible without
+                // needing a mouse event to fire the idle loop.
+                if (m_canvas) m_canvas->Refresh(false);
             } else {
                 select_view("plate");
                 zoom_to_bed();
@@ -3884,8 +3900,42 @@ void GLCanvas3D::on_key(wxKeyEvent& evt)
                     switch (keyCode) {
                         case '0':
                         case WXK_NUMPAD0: //0 on numpad
-                            { select_view("plate");
-                              zoom_to_bed();
+                        {
+                            // ORCA_BELT: belt-aware object framing. On Linux, Ctrl+digit
+                            // only fires KEY_UP (not wxEVT_CHAR), so the on_char case '0'
+                            // is a no-op here. Keep this KEY_UP handler authoritative.
+                            bool is_belt_printer = false;
+                            if (auto* bundle = wxGetApp().preset_bundle) {
+                                const auto& pc = bundle->printers.get_edited_preset().config;
+                                if (auto* ps = pc.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                                    is_belt_printer = (ps->value == psBelt);
+                            }
+                            if (is_belt_printer) {
+                                BoundingBoxf3 focus_box = volumes_bounding_box(true);
+                                if (!focus_box.defined) {
+                                    const BoundingBoxf3& shell_bb = m_gcode_viewer.get_shell_bounding_box();
+                                    if (shell_bb.defined) focus_box = shell_bb;
+                                }
+                                if (!focus_box.defined) {
+                                    const BoundingBoxf3& tp_bb = m_gcode_viewer.get_max_bounding_box();
+                                    if (tp_bb.defined && tp_bb.max_size() > 0.f) focus_box = tp_bb;
+                                }
+                                auto& cam = wxGetApp().plater()->get_camera();
+                                if (focus_box.defined)
+                                    cam.set_target(focus_box.center());
+                                select_view("plate");
+                                if (focus_box.defined) {
+                                    cam.zoom_to_box(focus_box);
+                                    cam.set_target(focus_box.center());
+                                    m_dirty = true;
+                                } else {
+                                    zoom_to_bed();
+                                }
+                                if (m_canvas) m_canvas->Refresh(false);
+                            } else {
+                                select_view("plate");
+                                zoom_to_bed();
+                            }
                             break;
                         }
                         case '1':
