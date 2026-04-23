@@ -23,6 +23,7 @@ import configparser
 import re
 import shutil
 import sys
+import tempfile
 import uuid
 import zipfile
 from pathlib import Path
@@ -574,6 +575,7 @@ def create_support_box(mesh, mask, xy_gap=0.35, z_gap=0.15, floor_z=0.1):
     print(f"  Overall bounds: X[{bb[0,0]:.2f},{bb[1,0]:.2f}] "
           f"Y[{bb[0,1]:.2f},{bb[1,1]:.2f}] Z[{bb[0,2]:.2f},{bb[1,2]:.2f}]")
     print(f"  Total volume: {support.volume:.2f} mm³")
+    _log_components(support, "after create_support_box")
     return support
 
 
@@ -716,9 +718,12 @@ def split_support_wedge(support_local, wedge_height):
     z_top = float(support_local.bounds[1, 2])
     z_split = z_bot + wedge_height
 
+    _log_components(support_local, "split_support_wedge input (support_local)")
+
     if z_split >= z_top - 0.1:
         print(f"\nSupport wedge: entire support within wedge height ({z_bot:.2f}→{z_top:.2f}), "
               f"all solid infill.")
+        _log_components(support_local, "split_support_wedge → wedge (all)")
         return support_local, None
 
     # Bounding box for the wedge region (same XY as support)
@@ -748,10 +753,12 @@ def split_support_wedge(support_local, wedge_height):
 
     if support_wedge is None or support_wedge.is_empty:
         print("  Warning: wedge intersection empty — no wedge base")
+        _log_components(support_local, "split_support_wedge → main only (wedge empty)")
         return None, support_local
 
     if support_main is None or support_main.is_empty:
         print("  Note: support entirely within wedge height → all solid infill")
+        _log_components(support_wedge, "split_support_wedge → wedge only (main empty)")
         return support_wedge, None
 
     print(f"\nSupport wedge split:")
@@ -759,10 +766,48 @@ def split_support_wedge(support_local, wedge_height):
           f"vol={support_wedge.volume:.1f}mm³")
     print(f"  Main (sparse):       Z[{z_split:.2f}, {z_top:.2f}]  "
           f"vol={support_main.volume:.1f}mm³")
+    _log_components(support_wedge, "split_support_wedge → wedge")
+    _log_components(support_main, "split_support_wedge → main")
     return support_wedge, support_main
 
 
 # ── Boolean Helpers ───────────────────────────────────────────────────────────
+
+def _log_components(mesh, label):
+    """Debug: enumerate connected components with bounds + volume.
+
+    Used to trace where individual support prisms (P0, P1, …) are lost
+    across boolean ops (subtract, wedge split). A prism that exists in the
+    `support_raw` body but vanishes after a boolean step is dropped here.
+    """
+    if mesh is None:
+        print(f"  [{label}] <None>")
+        return
+    try:
+        is_empty = bool(getattr(mesh, "is_empty", False))
+    except Exception:
+        is_empty = False
+    if is_empty:
+        print(f"  [{label}] <empty>")
+        return
+    try:
+        comps = mesh.split(only_watertight=False)
+    except Exception as e:
+        print(f"  [{label}] split failed ({e}) — single body "
+              f"faces={len(mesh.faces)} vol={mesh.volume:.2f}")
+        return
+    print(f"  [{label}] {len(comps)} component(s):")
+    for i, c in enumerate(comps):
+        b = c.bounds
+        try:
+            vol = c.volume
+        except Exception:
+            vol = float("nan")
+        print(f"    P{i}: X=[{b[0,0]:+.2f},{b[1,0]:+.2f}] "
+              f"Y=[{b[0,1]:+.2f},{b[1,1]:+.2f}] "
+              f"Z=[{b[0,2]:+.2f},{b[1,2]:+.2f}] "
+              f"vol={vol:.2f}")
+
 
 def _make_solid(mesh):
     """
@@ -834,6 +879,7 @@ def _subtract_model(support_raw, model, side_gap=0.0):
     a lateral clearance gap on vertical support walls for easier removal.
     """
     print("\nBoolean: subtracting model from support...")
+    _log_components(support_raw, "before _subtract_model (support_raw)")
     model_solid = _make_solid(model)
     if side_gap > 0:
         model_solid = _expand_mesh_xy(model_solid, side_gap)
@@ -845,6 +891,7 @@ def _subtract_model(support_raw, model, side_gap=0.0):
         print(f"  Support after subtraction: {len(result.faces)} faces, "
               f"volume={result.volume:.2f} mm³")
         print(f"  Bounds: X{result.bounds[:,0]} Y{result.bounds[:,1]} Z{result.bounds[:,2]}")
+        _log_components(result, "after _subtract_model (support_clean)")
         return result
     except Exception as e:
         print(f"  Warning: boolean subtraction failed ({e}) — using raw support box")
@@ -971,6 +1018,11 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
 
     inf_str = str(infill_density).rstrip("%") + "%"
 
+    # grid = OrcaSlicer's default pattern for normal (non-tree) supports:
+    # perpendicular lines breaking cleanly off the model, stacking rigidly
+    # across layers. Gyroid (default infill pattern) delaminates mid-print
+    # because each layer only touches the previous at two points of the
+    # sinusoid — observed HW failure 2026-04-23.
     support_part_xml = (
         f'    <part id="{SUPPORT_OBJ_ID}" subtype="normal_part">\n'
         f'      <metadata key="name" value="support"/>\n'
@@ -979,6 +1031,7 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         f'      <metadata key="top_shell_layers" value="0"/>\n'
         f'      <metadata key="bottom_shell_layers" value="0"/>\n'
         f'      <metadata key="sparse_infill_density" value="{inf_str}"/>\n'
+        f'      <metadata key="sparse_infill_pattern" value="grid"/>\n'
         f'      <metadata key="enable_support" value="0"/>\n'
         f'      <mesh_stat edges_fixed="0" degenerate_facets="0" '
         f'facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n'
@@ -1052,6 +1105,124 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
     print(f"  Support (sparse {inf_str}): Z{support_local.bounds[:,2]}")
     if support_wedge_local is not None:
         print(f"  Wedge (solid 100%):        Z{support_wedge_local.bounds[:,2]}")
+
+
+# ── STL → Orca multi-sub-object 3MF template ────────────────────────────────
+
+def stl_to_orca_3mf_template(stl_path, out_3mf_path, object_name=None):
+    """
+    Build a minimal OrcaSlicer 3MF from an STL in the multi-sub-object format
+    that export_3mf_two_volumes() consumes. The resulting 3MF has:
+      - A composite object (id=2) with a single <component> referring to a
+        sub-object .model file (id=1) that carries the mesh.
+      - Metadata/model_settings.config listing the composite object with one
+        <part id=1>.
+      - Metadata/project_settings.config as an empty JSON shell (values get
+        patched later by export_3mf_two_volumes).
+      - All rels + [Content_Types] boilerplate.
+
+    This bridges MCP/Orca's simple inline 3MF format (export) to the
+    preprocessor's expected multi-sub-object layout — without requiring the
+    user to manually re-export through a different path.
+    """
+    mesh = trimesh.load(str(stl_path), force="mesh")
+    name = object_name or Path(stl_path).stem
+    sub_file = f"3D/Objects/{name}_1.model"
+    sub_obj_id = 1
+    comp_obj_id = 2
+    comp_uuid = str(uuid.uuid4())
+    sub_uuid = str(uuid.uuid4())
+    item_uuid = str(uuid.uuid4())
+    build_uuid = str(uuid.uuid4())
+
+    root_model = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US"
+ xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+ xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"
+ xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+ requiredextensions="p">
+ <metadata name="Application">ORCA_BELT support_preprocess.py</metadata>
+ <resources>
+  <object id="{comp_obj_id}" p:UUID="{comp_uuid}" type="model">
+   <components>
+    <component p:path="/{sub_file}" objectid="{sub_obj_id}" p:UUID="{sub_uuid}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>
+   </components>
+  </object>
+ </resources>
+ <build p:UUID="{build_uuid}">
+  <item objectid="{comp_obj_id}" p:UUID="{item_uuid}" transform="1 0 0 0 1 0 0 0 1 0 0 0" printable="1"/>
+ </build>
+</model>'''
+
+    sub_body = _mesh_to_xml_body(mesh, sub_obj_id)
+    sub_model = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US"
+  xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+  xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06">
+ <resources>
+{sub_body}
+ </resources>
+</model>'''
+
+    rels_root = '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>'''
+
+    rels_model = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Target="/{sub_file}" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>'''
+
+    content_types = '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+ <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+ <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+ <Default Extension="png" ContentType="image/png"/>
+ <Default Extension="config" ContentType="application/vnd.ms-package.text-plain-utf8"/>
+ <Default Extension="json" ContentType="application/vnd.ms-package.text-plain-utf8"/>
+</Types>'''
+
+    # Minimal settings: composite object with 1 part for the model mesh.
+    model_settings = f'''<?xml version="1.0" encoding="UTF-8"?>
+<config>
+  <object id="{comp_obj_id}">
+    <metadata key="name" value="{name}"/>
+    <metadata key="extruder" value="1"/>
+    <part id="{sub_obj_id}" subtype="normal_part">
+      <metadata key="name" value="{name}"/>
+      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
+      <mesh_stat edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
+    </part>
+  </object>
+  <plate>
+    <metadata key="plater_id" value="1"/>
+    <metadata key="plater_name" value=""/>
+    <metadata key="locked" value="false"/>
+    <model_instance>
+      <metadata key="object_id" value="{comp_obj_id}"/>
+      <metadata key="instance_id" value="0"/>
+    </model_instance>
+  </plate>
+</config>'''
+
+    # Empty-ish JSON shell: export_3mf_two_volumes will patch brim/enable_support
+    # via regex if these keys already exist. If the user later wants to impose a
+    # real belt preset, they re-slice inside Orca which rewrites this file.
+    project_settings = '{"brim_type":"no_brim","brim_width":"0","enable_support":"0"}'
+
+    Path(out_3mf_path).parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out_3mf_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", rels_root)
+        z.writestr("3D/3dmodel.model", root_model)
+        z.writestr("3D/_rels/3dmodel.model.rels", rels_model)
+        z.writestr(sub_file, sub_model)
+        z.writestr("Metadata/model_settings.config", model_settings)
+        z.writestr("Metadata/project_settings.config", project_settings)
+    print(f"wrote template 3MF: {out_3mf_path} "
+          f"({len(mesh.vertices)} verts, {len(mesh.faces)} faces)")
+    return out_3mf_path
 
 
 # ── Legacy STL Compound Export ────────────────────────────────────────────────
@@ -1184,9 +1355,15 @@ def main():
         return
 
     # ── 3MF two-volume mode ────────────────────────────────────────────────
-    if model_path.suffix.lower() != ".3mf":
-        print("Error: two-volume mode requires a .3mf source.", file=sys.stderr)
-        print("Use --compound for STL input.", file=sys.stderr)
+    # If the input is an STL, bridge it into the multi-sub-object 3MF format
+    # this path expects (lets us ship a proper multi-part 3MF with per-part
+    # settings — e.g. sparse_infill_pattern=grid for the support volume).
+    if model_path.suffix.lower() == ".stl":
+        bridged = Path(tempfile.gettempdir()) / (model_path.stem + "_bridged.3mf")
+        stl_to_orca_3mf_template(str(model_path), str(bridged))
+        model_path = bridged
+    elif model_path.suffix.lower() != ".3mf":
+        print("Error: two-volume mode requires a .3mf or .stl source.", file=sys.stderr)
         sys.exit(1)
 
     # Load model. NOTE: for 3MF, load_mesh_local now applies any non-identity
