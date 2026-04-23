@@ -85,6 +85,19 @@ def read_3mf_support_settings(path_3mf):
         except (ValueError, TypeError):
             pass
 
+    # Belt-directional: custom project key, bool (stored as "1" / "0" / true / false).
+    # Not in the standard OrcaSlicer schema — ORCA_BELT extension so per-project
+    # overrides survive across re-slices without re-specifying CLI flags.
+    raw = proj.get("belt_directional_supports")
+    if isinstance(raw, list) and raw:
+        raw = raw[0]
+    if raw is not None:
+        s = str(raw).strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            found["belt_directional"] = True
+        elif s in ("0", "false", "no", "off"):
+            found["belt_directional"] = False
+
     return found
 
 
@@ -419,6 +432,83 @@ def _overhang_regions(mesh, mask):
     n_comp, labels = connected_components(adj, directed=False)
     for c in range(n_comp):
         yield cand_idx[labels == c]
+
+
+def filter_belt_directional(mesh, overhang_mask,
+                            xy_radius=2.0, z_tolerance=0.8, dz_lead=0.4):
+    """
+    Belt-printer directional filter: remove overhang regions already supported
+    by earlier-printed material that the belt carries into position.
+
+    Physics. Belt print order = virt_Z = Y + Z. Smaller virt_Z prints first;
+    the belt then advances that material in +Y. Between time t₀ and t₁ the
+    belt advance in world Y equals (virt_Z₁ − virt_Z₀), so a roof face deposited
+    at (X_v, Y_v, Z_v) at time virt_Z_v ends up at (X_v, Y_v + Δ, Z_v) at the
+    later time virt_Z_v + Δ. X and Z do NOT change — only Y slides. So an
+    overhang at world (X_o, Y_o, Z_o) is self-supported by a prior roof iff
+    that roof exists at the SAME X, SAME Z, with any smaller virt_Z — the belt
+    slides it under.
+
+    Algorithm (per connected overhang region R):
+      1. virt_Z_R = min(Y + Z) over R. Z_R_min = min Z.
+      2. X_c = area-weighted X of region face centers.
+      3. Candidate prior = non-overhang faces with:
+            - face-normal.Z > 0.1  (upward-facing "roof")
+            - face-center virt_Z < virt_Z_R − dz_lead (strictly earlier).
+      4. Keep candidates with |face-center X − X_c| ≤ xy_radius AND
+         |face-center Z − Z_R_min| ≤ z_tolerance.
+      5. If ≥1 qualifies, the belt slides it under R → drop R from mask.
+
+    Pure (mesh, mask) → mask. Can only REMOVE supports, never add.
+    """
+    if not overhang_mask.any():
+        return overhang_mask
+
+    centers = mesh.triangles_center  # (F, 3)
+    normals = mesh.face_normals      # (F, 3)
+    areas   = mesh.area_faces        # (F,)
+    virt_z_face = centers[:, 1] + centers[:, 2]
+
+    # Non-overhang roof faces — potential belt-delivered support surfaces.
+    is_roof = (normals[:, 2] > 0.1) & (~overhang_mask)
+    if not is_roof.any():
+        return overhang_mask
+
+    result_mask = overhang_mask.copy()
+    kept = 0
+    dropped = 0
+    for region_faces in _overhang_regions(mesh, overhang_mask):
+        region_verts_idx = np.unique(mesh.faces[region_faces].flatten())
+        region_verts = mesh.vertices[region_verts_idx]
+        virt_z_R = float((region_verts[:, 1] + region_verts[:, 2]).min())
+        Z_R_min = float(region_verts[:, 2].min())
+
+        tri_c = centers[region_faces]
+        tri_a = areas[region_faces]
+        total_area = tri_a.sum()
+        if total_area <= 0.0:
+            kept += len(region_faces)
+            continue
+        X_c = float((tri_c[:, 0] * tri_a).sum() / total_area)
+
+        prior = is_roof & (virt_z_face < virt_z_R - dz_lead)
+        if not prior.any():
+            kept += len(region_faces)
+            continue
+        cand = centers[prior]
+        x_ok = np.abs(cand[:, 0] - X_c) <= xy_radius
+        z_ok = np.abs(cand[:, 2] - Z_R_min) <= z_tolerance
+        if (x_ok & z_ok).any():
+            result_mask[region_faces] = False
+            dropped += len(region_faces)
+        else:
+            kept += len(region_faces)
+
+    print(f"\nBelt-directional filter:")
+    print(f"  xy_radius={xy_radius}mm z_tolerance={z_tolerance}mm dz_lead={dz_lead}mm")
+    print(f"  Faces kept (still need support): {kept}")
+    print(f"  Faces dropped (belt self-supported): {dropped}")
+    return result_mask
 
 
 def create_support_box(mesh, mask, xy_gap=0.35, z_gap=0.15, floor_z=0.1):
@@ -983,6 +1073,16 @@ def make_compound_stl(model_path, config):
         min_area=config["min_area"],
     )
 
+    # ORCA_BELT: apply belt-directional filter if the config says so. The
+    # compound (STL) path plumbs the flag via the config dict — callers (e.g.
+    # the test harness) can pass belt_directional=True in their overrides.
+    if config.get("belt_directional") and overhang_mask.any():
+        overhang_mask = filter_belt_directional(
+            model, overhang_mask,
+            xy_radius=float(config.get("belt_directional_radius", 2.0)),
+            z_tolerance=float(config.get("belt_directional_ztol", 0.8)),
+        )
+
     if not overhang_mask.any():
         print("\nNo overhangs detected — returning model as-is.")
         return model, None
@@ -1038,6 +1138,16 @@ def main():
                         help="Export only the support mesh as STL (debug)")
     parser.add_argument("--compound", action="store_true",
                         help="Legacy STL mode: fuse model+support into compound mesh")
+    parser.add_argument("--belt-directional", action="store_true",
+                        help="Belt printers only: drop support columns for overhangs that "
+                             "are already self-supported by earlier-printed material carried "
+                             "forward by the belt. Default OFF (opt-in, surgical). Can also "
+                             "be enabled via 3MF project setting belt_directional_supports.")
+    parser.add_argument("--belt-directional-radius", type=float, default=2.0,
+                        help="XY proximity (mm) for belt-directional filter (default 2.0)")
+    parser.add_argument("--belt-directional-ztol", type=float, default=0.8,
+                        help="Z reach tolerance (mm) for belt-directional filter (default 0.8, "
+                             "≈2× layer height)")
     args = parser.parse_args()
 
     model_path = Path(args.model)
@@ -1056,6 +1166,14 @@ def main():
         base_overrides = read_3mf_support_settings(str(model_path))
 
     config = load_config(args.config, base_overrides=base_overrides)
+
+    # Plumb the CLI belt-directional flags into the config dict so both
+    # make_compound_stl() (STL path) and the 3MF path see the same settings.
+    # CLI args override 3MF project settings (base_overrides merged earlier).
+    if args.belt_directional:
+        config["belt_directional"] = True
+    config["belt_directional_radius"] = args.belt_directional_radius
+    config["belt_directional_ztol"] = args.belt_directional_ztol
 
     # ── Legacy STL compound mode ───────────────────────────────────────────
     if args.compound:
@@ -1137,6 +1255,19 @@ def main():
         floor_z=config["floor_z"],
         min_area=config["min_area"],
     )
+
+    # ORCA_BELT: optional belt-directional filter. CLI flag takes precedence;
+    # 3MF project setting provides a fallback that survives re-slice. Default OFF.
+    belt_directional_on = (
+        args.belt_directional
+        or bool(config.get("belt_directional", False))
+    )
+    if belt_directional_on and overhang_mask.any():
+        overhang_mask = filter_belt_directional(
+            model_local, overhang_mask,
+            xy_radius=args.belt_directional_radius,
+            z_tolerance=args.belt_directional_ztol,
+        )
 
     if not overhang_mask.any() and keel_wedge is None:
         print("\nNo overhangs and no keel gap — copying source 3MF unchanged.")
