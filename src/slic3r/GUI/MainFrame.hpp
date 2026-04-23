@@ -382,9 +382,6 @@ public:
     PrinterWebView*       m_printer_view{nullptr};
     // ORCA_BELT: native Klipper/Moonraker Device panel (replaces the
     // WebView-backed PrinterWebView that SIGSEGV'd inside libjavascriptcoregtk).
-    wxPanel*              m_klipper_panel{ nullptr };
-    wxStaticText*         m_klipper_status{ nullptr };
-    void                  refresh_klipper_status();
 
     wxLogWindow*          m_log_window { nullptr };
     // BBS
