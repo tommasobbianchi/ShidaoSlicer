@@ -6692,23 +6692,21 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             Geometry::Transformation t = instance->get_transformation();
             instance->set_offset(Slic3r::to_3d(this->bed.build_volume().bed_center(), -object->origin_translation(2)));
 
-            // ORCA_BELT: keel-align centered meshes on belt printers.
-            // center_around_origin() puts mesh bbox centered on (0,0,0), which
-            // for a belt bed places half the mesh at Y<0 (behind the belt keel
-            // at Y=0) — Orca flags this as "Object laid over the boundary" and
-            // the slice refuses to start. Shift Y by -bbox.min.y() so the
-            // mesh's Y_min corner sits flush on the keel. Z is handled later
-            // by ensure_on_bed().
+            // ORCA_BELT: keel-align every belt load. The default placement puts
+            // the instance at bed_center (Y≈1000 on a 2000mm belt), visually
+            // parking it in the middle of the belt where users can't reach the
+            // belt entry. User expectation on belt: the object's leading edge
+            // (Y_min) sits flush at Y=0, i.e. on the plate front edge, so print
+            // starts immediately.  Unconditional shift: Y_min → 0 for every
+            // freshly-loaded belt object.
             if (auto* bundle = wxGetApp().preset_bundle) {
                 const auto& printer_cfg = bundle->printers.get_edited_preset().config;
                 if (auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure")) {
                     if (ps_opt->value == psBelt) {
                         BoundingBoxf3 wbb = object->instance_bounding_box(object->instances.size() - 1);
-                        if (wbb.min.y() < 0.0) {
-                            Vec3d off = instance->get_offset();
-                            off.y() -= wbb.min.y();
-                            instance->set_offset(off);
-                        }
+                        Vec3d off = instance->get_offset();
+                        off.y() -= wbb.min.y();
+                        instance->set_offset(off);
                     }
                 }
             }
@@ -6804,6 +6802,42 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
 #endif
 
 #endif /* AUTOPLACEMENT_ON_LOAD */
+
+    // ORCA_BELT: keel-align every loaded instance on belt printers.
+    //
+    // World coords: Y=0 is the belt entry (keel). The print algorithm REQUIRES
+    // Y_min=0 so the object's leading edge sits on the keel and adheres. Also
+    // Z_min>=2mm for a safety buffer on the inclined surface (prevents mesh from
+    // sinking below the print plane when centered-origin STLs are imported).
+    //
+    // This runs for every new model_object regardless of whether instances were
+    // pre-existing in a 3MF (benchy.3mf has a baked instance) or freshly added
+    // in AUTOPLACEMENT_ON_LOAD. best_object_pos=(0.5, 0.0) leaves centroid at
+    // Y=0 for centered-origin meshes; we shift Y_min->0 and Z_min->2 here.
+    {
+        bool is_belt = false;
+        if (auto* bundle = wxGetApp().preset_bundle) {
+            const auto& printer_cfg = bundle->printers.get_edited_preset().config;
+            if (auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                is_belt = (ps_opt->value == psBelt);
+        }
+        if (is_belt) {
+            constexpr double Z_MIN_BUFFER_MM = 2.0;
+            for (size_t obj_idx : obj_idxs) {
+                if (obj_idx >= model.objects.size()) continue;
+                ModelObject* mo = model.objects[obj_idx];
+                if (!mo) continue;
+                for (int i = 0; i < (int)mo->instances.size(); ++i) {
+                    BoundingBoxf3 wbb = mo->instance_bounding_box(i);
+                    Vec3d off = mo->instances[i]->get_offset();
+                    off.y() -= wbb.min.y();                        // Y_min -> 0 (keel)
+                    if (wbb.min.z() < Z_MIN_BUFFER_MM)
+                        off.z() += (Z_MIN_BUFFER_MM - wbb.min.z()); // Z_min -> >=2mm
+                    mo->instances[i]->set_offset(off);
+                }
+            }
+        }
+    }
 
     //BBS: remove the auto scaled_down logic when load models
     //if (scaled_down) {
@@ -7474,7 +7508,24 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
         // Print::apply already flipped the plate to invalid via path at 15320/8919/
         // 4964 etc. — so was_valid=false. This distinguishes spurious from real.
         const bool plate_was_valid = this->background_process.get_current_plate()->is_slice_result_valid();
-        this->background_process.get_current_plate()->update_slice_result_valid_state(false);
+        // ORCA_BELT: don't invalidate plate validity on spurious belt re-apply
+        // (same trigger that spuriously reset the UI preview). Keeping the plate
+        // valid here is what enables the Print button after a successful slice;
+        // otherwise it flips true -> false ~500ms after slice complete and the
+        // button greys out.
+        bool belt_spurious = false;
+        if (auto* bundle = wxGetApp().preset_bundle) {
+            const auto& printer_cfg = bundle->printers.get_edited_preset().config;
+            if (auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure")) {
+                if (ps_opt->value == psBelt && plate_was_valid && preview) {
+                    belt_spurious = preview->get_canvas3d()->get_gcode_viewer().has_data();
+                }
+            }
+        }
+        if (!belt_spurious)
+            this->background_process.get_current_plate()->update_slice_result_valid_state(false);
+        else
+            BOOST_LOG_TRIVIAL(warning) << "[SLICE_VALID] belt spurious re-apply — keeping plate valid";
 
         //no need, should be done in background_process.apply
         //this->background_process.get_current_gcode_result()->reset();

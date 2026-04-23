@@ -2633,6 +2633,12 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
             m_contained_in_bed = true;
         else
             m_contained_in_bed = build_volume.all_paths_inside(gcode_result, m_paths_bounding_box);
+        // ORCA_BELT: skip exclude-zone check entirely for belt printers — belts
+        // have no valid exclude zones and the 2000mm-long bed produces false
+        // positives that leave toolpath_outside=true, disabling the Print button.
+        if (is_belt_printer) {
+            (const_cast<GCodeProcessorResult&>(gcode_result)).toolpath_outside = false;
+        } else
         if (m_contained_in_bed) {
             //PartPlateList& partplate_list = wxGetApp().plater()->get_partplate_list();
             //PartPlate* plate = partplate_list.get_curr_plate();
