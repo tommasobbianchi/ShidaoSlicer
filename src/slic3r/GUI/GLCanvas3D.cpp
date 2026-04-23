@@ -3491,20 +3491,32 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
 #endif /* __APPLE__ */
         { m_labels.show(!m_labels.is_shown()); m_dirty = true; break; }
         case '0': {
-            select_view("plate");
-            // ORCA_BELT: zoom_to_bed on a 2000mm belt plate shrinks the object to
-            // a few pixels. Zoom to the actual volumes instead when loaded, and
-            // only fall back to the bed when the plate is empty.
+            // ORCA_BELT: point the camera target at the volumes centroid BEFORE
+            // rotating. select_view builds the 3/4 look-at from the current
+            // m_target, so if the target is still at bed center (~Y=1000 on
+            // belt) the rotation ends up framing empty plate, and the later
+            // orbit pivot update drags the view back off the model. Update
+            // target first, then set the orientation, then zoom — this stays
+            // sticky across subsequent interactions.
             bool is_belt_printer = false;
             if (auto* bundle = wxGetApp().preset_bundle) {
                 const auto& pc = bundle->printers.get_edited_preset().config;
                 if (auto* ps = pc.option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
                     is_belt_printer = (ps->value == psBelt);
             }
-            if (is_belt_printer && volumes_bounding_box(true).defined)
-                zoom_to_volumes();
-            else
+            if (is_belt_printer) {
+                const BoundingBoxf3 vbb = volumes_bounding_box(true);
+                if (vbb.defined)
+                    wxGetApp().plater()->get_camera().set_target(vbb.center());
+                select_view("plate");
+                if (vbb.defined)
+                    zoom_to_volumes();
+                else
+                    zoom_to_bed();
+            } else {
+                select_view("plate");
                 zoom_to_bed();
+            }
             break; }
         case '1': { select_view("top"); break; }
         case '2': { select_view("bottom"); break; }
