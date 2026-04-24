@@ -16,6 +16,7 @@
     "sparse_infill_pattern": "grid",
     "support_base_pattern": "rectilinear-grid",
     "support_interface_pattern": "rectilinear",
+    "layer_change_gcode": "G92 E0 ; belt: reset extruder at layer change (relative E)",
     "compatible_printers": [
         "IdeaFormer IR3 V2 0.4 nozzle"
     ]
