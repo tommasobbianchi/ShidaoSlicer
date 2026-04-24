@@ -1079,6 +1079,19 @@ void MainFrame::init_tabpanel() {
         int sel = m_tabpanel->GetSelection();
         //wxString page_text = m_tabpanel->GetPageText(sel);
         m_last_selected_tab = m_tabpanel->GetSelection();
+
+        // ORCA_BELT: park the Fluidd SPA on about:blank whenever the user
+        // isn't actively on the Device tab. Prevents Vue/WebSocket timers
+        // and JavaScriptCore GC from running on the GTK main loop, which
+        // races with Plater::load_files 3MF parsing and crashes Orca in
+        // libjavascriptcoregtk-4.1 (observed 2026-04-24, stack topped by
+        // Plater::priv::load_files, bottomed by wxApp::DoIdle).
+        if (m_printer_view) {
+            if (panel == m_printer_view)
+                m_printer_view->Resume();
+            else
+                m_printer_view->Pause();
+        }
         if (panel == m_plater) {
             if (sel == tp3DEditor) {
                 wxPostEvent(m_plater, SimpleEvent(EVT_GLVIEWTOOLBAR_3D));

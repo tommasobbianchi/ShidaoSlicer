@@ -44,6 +44,15 @@ public:
     void reload();
     void update_mode();
 
+    // ORCA_BELT: pause/resume the embedded JavaScript VM by swapping the
+    // page to about:blank when the Device tab isn't visible. Fluidd's Vue
+    // SPA keeps WebSocket reconnect timers and GC running on the GTK main
+    // loop even when hidden, which races with Plater::load_files parsing a
+    // 3MF (libjavascriptcoregtk SIGSEGV observed 2026-04-24). about:blank
+    // unloads the SPA entirely.
+    void Pause();
+    void Resume();
+
     bool Show(bool show = true) override;
 
 private:
@@ -55,6 +64,8 @@ private:
     bool m_apikey_sent;
 
     wxString m_url_deferred;
+    wxString m_active_url;   // last URL loaded, restored by Resume()
+    bool     m_paused = false;
 
     // DECLARE_EVENT_TABLE()
 };

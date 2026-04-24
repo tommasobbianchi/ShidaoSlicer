@@ -78,7 +78,8 @@ void PrinterWebView::load_url(wxString& url, wxString apikey)
     m_apikey = apikey;
     m_apikey_sent = false;
 
-    if (this->IsShown()) {
+    m_active_url = url;
+    if (this->IsShown() && !m_paused) {
         m_url_deferred.clear();
         m_browser->LoadURL(url);
     } else {
@@ -86,6 +87,30 @@ void PrinterWebView::load_url(wxString& url, wxString apikey)
     }
     //m_browser->SetFocus();
     UpdateState();
+}
+
+void PrinterWebView::Pause()
+{
+    if (m_browser == nullptr || m_paused) return;
+    // Remember the last real URL we were on (LoadURL may not have been called
+    // yet if the tab was never visible — fall back to m_active_url set by
+    // load_url) and swap the WebView to about:blank. This unloads Fluidd's
+    // Vue app, killing its timers and WebSocket reconnect loop so nothing
+    // runs on the GTK main loop while the user is back in Plater.
+    wxString current = m_browser->GetCurrentURL();
+    if (!current.IsEmpty() && current != "about:blank")
+        m_active_url = current;
+    m_browser->LoadURL("about:blank");
+    m_paused = true;
+}
+
+void PrinterWebView::Resume()
+{
+    if (m_browser == nullptr || !m_paused) return;
+    m_paused = false;
+    m_apikey_sent = false;  // re-inject on reload
+    if (!m_active_url.IsEmpty())
+        m_browser->LoadURL(m_active_url);
 }
 
 bool PrinterWebView::Show(bool show)
