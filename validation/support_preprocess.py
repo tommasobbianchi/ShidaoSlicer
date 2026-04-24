@@ -208,13 +208,20 @@ def _load_mesh_from_3mf_local(path_3mf):
     re-apply the rotation a second time).
     """
     with zipfile.ZipFile(path_3mf) as z:
-        rels_xml = z.read("3D/_rels/3dmodel.model.rels").decode()
-        m = re.search(r'Target="([^"]+\.model)"', rels_xml)
-        if not m:
-            raise ValueError(f"No sub-object .model found in rels of {path_3mf}")
-        sub_path = m.group(1).lstrip("/")
-        sub_xml = z.read(sub_path).decode()
         model_xml = z.read("3D/3dmodel.model").decode()
+        try:
+            # Multi-sub-object layout: root 3dmodel.model lists <component>
+            # tags pointing to Objects/*.model files via the .rels sidecar.
+            rels_xml = z.read("3D/_rels/3dmodel.model.rels").decode()
+            m = re.search(r'Target="([^"]+\.model)"', rels_xml)
+            if not m:
+                raise KeyError("rels present but no sub-object")
+            sub_path = m.group(1).lstrip("/")
+            sub_xml = z.read(sub_path).decode()
+        except KeyError:
+            # Flat layout (Orca's own "Save As 3MF" output): vertices/triangles
+            # live inline in 3D/3dmodel.model, no sub-object files.
+            sub_xml = model_xml
 
     verts = []
     for m in re.finditer(r'vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"', sub_xml):
@@ -229,21 +236,30 @@ def _load_mesh_from_3mf_local(path_3mf):
 
     V = np.array(verts, dtype=float)
 
-    # Parse + apply the rotation block of the item transform.
-    # 3MF row-vector convention: p_world = p_local · M  →  V_world = V @ R
-    R, _t = _parse_item_transform(model_xml)
+    # Parse + apply the item transform (rotation AND translation).
+    # 3MF row-vector convention: p_world = p_local · M  →  V_world = V @ R + t
+    # Orca's "Save As 3MF" stores the plate-centering offset in this
+    # translation (e.g. t=(125, 20.35, 17.05)) so the mesh in the sub-object
+    # is centered around origin but ends up on the plate after load. Without
+    # applying it here, keel_gap / overhang detection / floor_z would all run
+    # in centered-origin space — producing supports the size of the bounding
+    # box. We apply R+t and later inverse-transform (R⁻¹, −t) on export.
+    R, t = _parse_item_transform(model_xml)
+    V = V @ R + t
+    notes = []
     if not np.allclose(R, np.eye(3), atol=1e-6):
-        V = V @ R
-        rot_note = f" (item rotation applied: R=\n{R})"
-    else:
-        rot_note = ""
+        notes.append(f"R=\n{R}")
+    if not np.allclose(t, 0, atol=1e-6):
+        notes.append(f"t={t}")
+    rot_note = " (item transform applied: " + "; ".join(notes) + ")" if notes else ""
 
     mesh = trimesh.Trimesh(
         vertices=V,
         faces=np.array(faces, dtype=np.int64),
         process=True,
     )
-    mesh.metadata["item_rotation"] = R  # stash for later inverse-rotate on export
+    mesh.metadata["item_rotation"] = R     # stash for later inverse-rotate on export
+    mesh.metadata["item_translation"] = t  # stash for later inverse-translate on export
     print(f"Loaded 3MF local mesh: {len(mesh.vertices)} verts, "
           f"X{mesh.bounds[:,0]} Y{mesh.bounds[:,1]} Z{mesh.bounds[:,2]}{rot_note}")
     return mesh
@@ -949,6 +965,116 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
     with zipfile.ZipFile(source_3mf) as zin:
         files = {name: zin.read(name) for name in zin.namelist()}
 
+    # ── 0. Normalize inline/flat → multi-sub-object ──────────────────────
+    # Orca's "Save As 3MF" produces either:
+    #   (a) a single inline <object id=N type="model"><mesh></object> with a
+    #       <build><item objectid=N/>, OR
+    #   (b) an inline-composite: one <object id=A><mesh></object> plus one
+    #       <object id=B><components><component objectid="A"/></components>
+    #       </object> (no p:path attributes — everything lives in the root
+    #       3dmodel.model file).
+    # The downstream support workflow expects multi-sub-object layout
+    # (components carry p:path pointing at 3D/Objects/*.model). Convert both
+    # (a) and (b) in place.
+    model_xml = files["3D/3dmodel.model"].decode()
+    already_multi = ("p:path=" in model_xml) and ("3D/_rels/3dmodel.model.rels" in files)
+    if not already_multi:
+        # Find the inline mesh-bearing object.
+        m_inline = re.search(
+            r'<object\s+id="(\d+)"[^>]*type="model"[^>]*>\s*(<mesh>.*?</mesh>)\s*</object>',
+            model_xml, re.DOTALL)
+        if not m_inline:
+            raise ValueError("3dmodel.model has no inline <mesh> to extract")
+        mesh_obj_id = int(m_inline.group(1))
+        mesh_xml = m_inline.group(2)
+
+        # Is there already a composite <object id=N><components></object>?
+        m_comp = re.search(
+            r'<object\s+id="(\d+)"[^>]*>\s*<components>.*?</components>\s*</object>',
+            model_xml, re.DOTALL)
+        if m_comp:
+            composite_id_new = int(m_comp.group(1))
+        else:
+            composite_id_new = max(mesh_obj_id + 1, 2)
+
+        sub_obj_id = 1                                 # fresh id inside sub-file
+        sub_path = "3D/Objects/model_1.model"
+        sub_uuid = str(uuid.uuid4())
+        comp_uuid = str(uuid.uuid4())
+
+        sub_model_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<model unit="millimeter" xml:lang="en-US"\n'
+            '  xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"\n'
+            '  xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06">\n'
+            ' <resources>\n'
+            f' <object id="{sub_obj_id}" type="model">\n'
+            f'  {mesh_xml}\n'
+            f' </object>\n'
+            ' </resources>\n'
+            '</model>'
+        )
+        files[sub_path] = sub_model_xml.encode()
+
+        # Rewrite: drop the inline mesh object AND any existing composite, then
+        # insert a single new composite that references the sub-object via p:path.
+        model_xml = re.sub(
+            r'<object\s+id="\d+"[^>]*type="model"[^>]*>\s*<mesh>.*?</mesh>\s*</object>\s*',
+            "", model_xml, count=1, flags=re.DOTALL)
+        if m_comp:
+            model_xml = re.sub(
+                r'<object\s+id="\d+"[^>]*>\s*<components>.*?</components>\s*</object>\s*',
+                "", model_xml, count=1, flags=re.DOTALL)
+
+        composite_block = (
+            f'  <object id="{composite_id_new}" p:UUID="{comp_uuid}" type="model">\n'
+            f'   <components>\n'
+            f'    <component p:path="/{sub_path}" objectid="{sub_obj_id}" '
+            f'p:UUID="{sub_uuid}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
+            f'   </components>\n'
+            f'  </object>\n'
+        )
+        model_xml = re.sub(r'(</resources>)', composite_block + r' \1',
+                           model_xml, count=1)
+
+        # Point <build><item> to the composite id (may already be correct if (b)).
+        model_xml = re.sub(
+            r'(<item\s+objectid=")\d+(")', rf'\g<1>{composite_id_new}\g<2>',
+            model_xml, count=1)
+
+        # Ensure the production namespace is declared on <model>.
+        if 'xmlns:p=' not in model_xml:
+            model_xml = model_xml.replace(
+                'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"',
+                'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"\n'
+                ' xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06"',
+                1)
+        files["3D/3dmodel.model"] = model_xml.encode()
+
+        rels_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+            f' <Relationship Target="/{sub_path}" Id="rel-1" '
+            'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
+            '</Relationships>'
+        )
+        files["3D/_rels/3dmodel.model.rels"] = rels_xml.encode()
+
+        # model_settings.config: keep <object id=composite_id_new> intact; if it
+        # references the mesh-bearing id, rewrite to the new composite id.
+        if "Metadata/model_settings.config" in files:
+            ms = files["Metadata/model_settings.config"].decode()
+            ms = re.sub(rf'<object\s+id="{mesh_obj_id}"(?=[\s>])',
+                        f'<object id="{composite_id_new}"', ms, count=1)
+            ms = re.sub(
+                rf'(<metadata\s+key="object_id"\s+value=")'
+                rf'{mesh_obj_id}(")',
+                rf'\g<1>{composite_id_new}\g<2>', ms)
+            files["Metadata/model_settings.config"] = ms.encode()
+
+        print(f"  Inline/flat → multi-sub-object: extracted mesh to {sub_path}, "
+              f"composite id={composite_id_new}")
+
     # ── 1. Parse 3dmodel.model: find composite object id ─────────────────
     model_xml = files["3D/3dmodel.model"].decode()
     m = re.search(r'<object\s+id="(\d+)"[^>]*>\s*<components>', model_xml)
@@ -1377,16 +1503,27 @@ def main():
     model_local = load_mesh_local(str(model_path))
     item_R = model_local.metadata.get("item_rotation") \
              if hasattr(model_local, "metadata") else None
+    item_t = model_local.metadata.get("item_translation") \
+             if hasattr(model_local, "metadata") else None
     if item_R is None:
         item_R = np.eye(3)
+    if item_t is None:
+        item_t = np.zeros(3)
     has_rotation = not np.allclose(item_R, np.eye(3), atol=1e-6)
+    has_translation = not np.allclose(item_t, 0, atol=1e-6)
 
     def _to_local(mesh):
-        """Inverse-rotate a world-space mesh back to 3MF local-space vertices."""
-        if mesh is None or not has_rotation:
+        """Inverse-transform a world-space mesh back to 3MF local coords.
+
+        p_world = p_local · R + t  →  p_local = (p_world − t) · R⁻¹
+        """
+        if mesh is None or (not has_rotation and not has_translation):
             return mesh
         m = mesh.copy()
-        m.vertices = m.vertices @ item_R.T  # R orthogonal, R.T == R^-1
+        v = m.vertices - item_t if has_translation else m.vertices
+        if has_rotation:
+            v = v @ item_R.T  # R orthogonal, R.T == R⁻¹
+        m.vertices = v
         return m
 
     # Adjust floor_z to the actual model bottom in local space.
