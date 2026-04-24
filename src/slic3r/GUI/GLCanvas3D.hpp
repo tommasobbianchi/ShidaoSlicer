@@ -829,6 +829,11 @@ public:
     void set_color_by(const std::string& value);
 
     BoundingBoxf3 volumes_bounding_box(bool current_plate_only = false) const;
+    // ORCA_BELT: robust volumes bbox with fallback chain for 3D canvas where
+    // volumes_bounding_box(true/false) can return empty despite populated
+    // m_volumes (plate-overlap filter edge cases). Used by Ctrl+0 and drag-
+    // rotate pivot so both land on the object centroid, not the bed center.
+    BoundingBoxf3 volumes_bounding_box_robust() const;
     BoundingBoxf3 scene_bounding_box() const;
     BoundingBoxf3 plate_scene_bounding_box(int plate_idx) const;
 

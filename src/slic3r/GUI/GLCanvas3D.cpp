@@ -1755,6 +1755,25 @@ BoundingBoxf3 GLCanvas3D::volumes_bounding_box(bool current_plate_only) const
     return bb;
 }
 
+BoundingBoxf3 GLCanvas3D::volumes_bounding_box_robust() const
+{
+    // 1. Preferred: current-plate-only bbox.
+    BoundingBoxf3 bb = volumes_bounding_box(true);
+    if (bb.defined) return bb;
+    // 2. Union across all plates.
+    bb = volumes_bounding_box(false);
+    if (bb.defined) return bb;
+    // 3. Raw loop over m_volumes with no plate-overlap filter — catches the
+    //    case where the instance hasn't been assigned to a plate yet (e.g.
+    //    immediately after Plater::load_files on belt before the plater
+    //    has re-arranged instances onto the 2000mm belt).
+    for (const GLVolume* volume : m_volumes.volumes) {
+        if (volume != nullptr && (!m_apply_zoom_to_volumes_filter || volume->zoom_to_volumes))
+            bb.merge(volume->transformed_bounding_box());
+    }
+    return bb;
+}
+
 BoundingBoxf3 GLCanvas3D::scene_bounding_box() const
 {
     BoundingBoxf3 bb = volumes_bounding_box();
@@ -3502,7 +3521,7 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
                     is_belt_printer = (ps->value == psBelt);
             }
             if (is_belt_printer) {
-                BoundingBoxf3 focus_box = volumes_bounding_box(true);
+                BoundingBoxf3 focus_box = volumes_bounding_box_robust();
                 if (!focus_box.defined) {
                     const BoundingBoxf3& shell_bb = m_gcode_viewer.get_shell_bounding_box();
                     if (shell_bb.defined) focus_box = shell_bb;
@@ -3911,7 +3930,7 @@ void GLCanvas3D::on_key(wxKeyEvent& evt)
                                     is_belt_printer = (ps->value == psBelt);
                             }
                             if (is_belt_printer) {
-                                BoundingBoxf3 focus_box = volumes_bounding_box(true);
+                                BoundingBoxf3 focus_box = volumes_bounding_box_robust();
                                 if (!focus_box.defined) {
                                     const BoundingBoxf3& shell_bb = m_gcode_viewer.get_shell_bounding_box();
                                     if (shell_bb.defined) focus_box = shell_bb;
@@ -4728,10 +4747,12 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
                                 if (!m_selection.is_empty())
                                     rotate_target = m_selection.get_bounding_box().center();
                                 else {
-                                    // Rotate around the center of objects on current plate
-                                    auto bbox = volumes_bounding_box(true);
+                                    // ORCA_BELT: robust fallback chain. On belt a 2000mm
+                                    // plate bbox center is meters away from the printed
+                                    // object, so we exhaust every volume-derived bbox
+                                    // before falling back to the plate.
+                                    auto bbox = volumes_bounding_box_robust();
                                     if (!bbox.defined) {
-                                        // Rotate around current plate center if current plate is empty
                                         bbox = wxGetApp().plater()->get_partplate_list().get_curr_plate()->get_bounding_box();
                                     }
                                     rotate_target = bbox.center();
