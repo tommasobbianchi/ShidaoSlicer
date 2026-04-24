@@ -13,6 +13,9 @@
     "detect_overhang_wall": "1",
     "skirt_loops": "0",
     "skirt_distance": "0",
+    "sparse_infill_pattern": "grid",
+    "support_base_pattern": "rectilinear-grid",
+    "support_interface_pattern": "rectilinear",
     "compatible_printers": [
         "IdeaFormer IR3 V2 0.4 nozzle"
     ]
