@@ -48,3 +48,19 @@ squashfs-root/
 src/package/
 .claude/
 validation_output/
+
+# === ORCA_BELT additions ===
+# Trash bins
+.Trash-*/
+# Python build artifacts
+__pycache__/
+*.egg-info/
+*.bak
+# Random screenshots dropped in repo root
+/Schermata*.png
+# Generated validation outputs (transient; baselines live under validation/baselines/)
+validation/test_output/
+validation/screenshots/
+validation/tests/directional/example_output.png
+# Detached upstream deps tree (source removed in a5611f9a0b; build/ + DL_CACHE/ already ignored above)
+/deps/
