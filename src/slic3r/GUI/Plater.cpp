@@ -15299,43 +15299,54 @@ bool Plater::is_multi_extruder_ams_empty()
 // centered-origin meshes. So the hook must fire for every belt print, not
 // only when supports are requested — the preprocessor fast-passes (no-ops
 // via shutil.copy2) when neither supports nor a keel wedge are needed.
-static bool belt_supports_should_preprocess(Plater& plater)
+// v5 (2026-04-25): respect the user's enable_support toggle. Two motivators
+// for running the preprocessor: (a) user wants supports, (b) keel-gap fix
+// needed. Either is sufficient; gate fires on (a OR b). When only (b)
+// applies, inject_volumes passes --no-supports so the script emits only
+// the keel wedge and leaves overhangs alone.
+//
+// Returns: 0 = skip preprocess, 1 = preprocess (full), 2 = preprocess (keel-only)
+static int belt_supports_preprocess_mode(Plater& plater)
 {
     const auto& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
     auto* ps_opt = printer_cfg.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
     if (!ps_opt || ps_opt->value != psBelt) {
         BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: not-belt";
-        return false;
+        return 0;
     }
 
     const auto& objs = plater.model().objects;
-    if (objs.size() != 1)             { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: objs.size=" << objs.size(); return false; }
-    if (!objs[0])                     return false;
-    if (objs[0]->volumes.size() != 1) { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: volumes.size=" << objs[0]->volumes.size() << " (already injected or multi)"; return false; }
+    if (objs.size() != 1)             { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: objs.size=" << objs.size(); return 0; }
+    if (!objs[0])                     return 0;
+    if (objs[0]->volumes.size() != 1) { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: volumes.size=" << objs[0]->volumes.size() << " (already injected or multi)"; return 0; }
+    if (objs[0]->instances.empty())   { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no instances"; return 0; }
 
-    // Only preprocess when the model actually needs a keel wedge. We check the
-    // *instance-transformed* world bbox — what the user sees on the bed — rather
-    // than raw_mesh_bounding_box, because many STLs are authored with centered
-    // origin (mesh Z_min = -H/2) and the auto keel-align shifts the instance so
-    // the base lands at Z_world = 0. Using raw_mesh would incorrectly flag every
-    // centered-origin mesh as "needs wedge" even after correct placement.
-    //
-    // Flat-base world ≈ Z_world_min ≈ 0 → keel already on belt, skip wedge.
-    // Only centered / suspended meshes (Z_world_min < -EPS after transform) get
-    // the wedge injection — those are the R11-prone cases.
-    if (objs[0]->instances.empty()) {
-        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no instances";
-        return false;
-    }
+    // (a) User-facing enable_support: per-object override wins, otherwise
+    // fall back to the active print preset's value.
+    const auto& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    bool wants_supports = print_cfg.opt_bool("enable_support");
+    if (const ConfigOption* obj_es = objs[0]->config.option("enable_support"))
+        wants_supports = obj_es->getBool();
+
+    // (b) Keel-gap detection — instance-transformed world bbox. Centered-origin
+    // STLs (Z_min = -H/2) get the auto keel-align shift before this point;
+    // anything still suspended (Z_world_min < -EPS) needs the wedge injection.
     const BoundingBoxf3 world_bbox = objs[0]->instance_bounding_box(0, false);
     const double keel_z_threshold_mm = -0.05;
-    if (world_bbox.min.z() >= keel_z_threshold_mm) {
-        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: flat-base world (Z_min=" << world_bbox.min.z() << "mm, keel on belt)";
-        return false;
+    const bool needs_keel_wedge = world_bbox.min.z() < keel_z_threshold_mm;
+
+    if (!wants_supports && !needs_keel_wedge) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: enable_support=0 and flat-base world (Z_min=" << world_bbox.min.z() << ")";
+        return 0;
     }
 
-    BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] PROCEED: world Z_min=" << world_bbox.min.z() << "mm (keel below belt surface)";
-    return true;
+    if (wants_supports) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] PROCEED full: enable_support=1, world Z_min=" << world_bbox.min.z();
+        return 1;
+    }
+
+    BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] PROCEED keel-only: enable_support=0 but keel gap (Z_min=" << world_bbox.min.z() << ")";
+    return 2;
 }
 
 static boost::filesystem::path belt_supports_find_script()
@@ -15365,7 +15376,7 @@ static void belt_supports_log(const std::string& msg)
         BOOST_LOG_TRIVIAL(info)    << "[BELT_SUPPORTS] " << msg;
 }
 
-static bool belt_supports_inject_volumes(Plater& plater)
+static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
 {
     namespace fs = boost::filesystem;
 
@@ -15386,10 +15397,13 @@ static bool belt_supports_inject_volumes(Plater& plater)
         return false;
     }
 
-    wxString cmd = wxString::Format("python3 \"%s\" \"%s\" -o \"%s\"",
+    wxString cmd = wxString::Format("python3 \"%s\" \"%s\" -o \"%s\"%s",
         wxString::FromUTF8(script.string()),
         wxString::FromUTF8(tmp_in.string()),
-        wxString::FromUTF8(tmp_out.string()));
+        wxString::FromUTF8(tmp_out.string()),
+        keel_only ? wxString(" --no-supports") : wxString());
+    belt_supports_log(std::string("invoking preprocessor (")
+                      + (keel_only ? "keel-only" : "full") + ")");
     long rc = wxExecute(cmd, wxEXEC_SYNC | wxEXEC_HIDE_CONSOLE);
 
     boost::system::error_code ec;
@@ -15469,9 +15483,11 @@ void Plater::reslice()
 
     // Orca belt: pre-process supports + keel wedge via external script.
     // Idempotent: skips if already injected (objects[0]->volumes.size()>1).
-    if (belt_supports_should_preprocess(*this)) {
+    // mode: 0=skip, 1=full (overhang supports + keel wedge), 2=keel-only.
+    const int belt_mode = belt_supports_preprocess_mode(*this);
+    if (belt_mode != 0) {
         try {
-            belt_supports_inject_volumes(*this);
+            belt_supports_inject_volumes(*this, /*keel_only=*/belt_mode == 2);
         } catch (const std::exception& e) {
             belt_supports_log(std::string("EXCEPTION: ") + e.what());
         } catch (...) {

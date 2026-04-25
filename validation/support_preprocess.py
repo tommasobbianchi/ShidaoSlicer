@@ -1448,6 +1448,11 @@ def main():
     parser.add_argument("--belt-directional-ztol", type=float, default=0.8,
                         help="Z reach tolerance (mm) for belt-directional filter (default 0.8, "
                              "≈2× layer height)")
+    parser.add_argument("--no-supports", action="store_true",
+                        help="Skip overhang-support generation (only emit keel "
+                             "wedge if keel gap is detected). Used by the GUI "
+                             "auto-inject hook when the user toggles supports OFF "
+                             "but the mesh still needs the keel-wedge fix.")
     args = parser.parse_args()
 
     model_path = Path(args.model)
@@ -1566,12 +1571,17 @@ def main():
     else:
         print(f"\nKeel gap: {keel_gap_mm:.3f}mm (mesh contacts keel — no wedge needed).")
 
-    overhang_mask = detect_overhangs(
-        model_local,
-        threshold_angle=config["threshold_angle"],
-        floor_z=config["floor_z"],
-        min_area=config["min_area"],
-    )
+    if args.no_supports:
+        print("\n--no-supports: skipping overhang detection "
+              "(keel wedge will still be emitted if keel gap was detected).")
+        overhang_mask = np.zeros(len(model_local.faces), dtype=bool)
+    else:
+        overhang_mask = detect_overhangs(
+            model_local,
+            threshold_angle=config["threshold_angle"],
+            floor_z=config["floor_z"],
+            min_area=config["min_area"],
+        )
 
     # ORCA_BELT: optional belt-directional filter. CLI flag takes precedence;
     # 3MF project setting provides a fallback that survives re-slice. Default OFF.
