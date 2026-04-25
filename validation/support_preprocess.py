@@ -595,6 +595,232 @@ def create_support_box(mesh, mask, xy_gap=0.35, z_gap=0.15, floor_z=0.1):
     return support
 
 
+# ── Tree-shaped supports (A4 v1, opt-in via --tree) ──────────────────────────
+
+def _rect_frustum(x_c, y_c, z_bot, z_top,
+                  w_bot, h_bot, w_top, h_top):
+    """Build a rectangular frustum centered at (x_c, y_c).
+
+    Bottom face = `w_bot × h_bot` rectangle at z=z_bot.
+    Top face    = `w_top × h_top` rectangle at z=z_top.
+    Returns trimesh.Trimesh (12 triangles, 8 vertices, watertight).
+
+    Purpose: leaf cluster of a tree-support — connects the small trunk top
+    cross-section to the wider contact-polygon at the overhang underside.
+    """
+    wb, hb = w_bot * 0.5, h_bot * 0.5
+    wt, ht = w_top * 0.5, h_top * 0.5
+    verts = np.array([
+        [x_c - wb, y_c - hb, z_bot],  # 0 bottom -X-Y
+        [x_c + wb, y_c - hb, z_bot],  # 1 bottom +X-Y
+        [x_c + wb, y_c + hb, z_bot],  # 2 bottom +X+Y
+        [x_c - wb, y_c + hb, z_bot],  # 3 bottom -X+Y
+        [x_c - wt, y_c - ht, z_top],  # 4 top    -X-Y
+        [x_c + wt, y_c - ht, z_top],  # 5 top    +X-Y
+        [x_c + wt, y_c + ht, z_top],  # 6 top    +X+Y
+        [x_c - wt, y_c + ht, z_top],  # 7 top    -X+Y
+    ], dtype=float)
+    faces = np.array([
+        [0, 2, 1], [0, 3, 2],   # bottom (normal -Z)
+        [4, 5, 6], [4, 6, 7],   # top    (normal +Z)
+        [0, 1, 5], [0, 5, 4],   # -Y side
+        [1, 2, 6], [1, 6, 5],   # +X side
+        [2, 3, 7], [2, 7, 6],   # +Y side
+        [3, 0, 4], [3, 4, 7],   # -X side
+    ], dtype=np.int64)
+    m = trimesh.Trimesh(vertices=verts, faces=faces, process=True)
+    m.fix_normals()
+    return m
+
+
+def _xy_merge_groups(region_xy_centroids, merge_radius):
+    """Union-find: group regions whose XY centroids are within merge_radius.
+
+    Pure list operation — no mesh data needed.
+    Returns list[list[int]] (each sublist = indices of regions in that group).
+    """
+    n = len(region_xy_centroids)
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    r2 = merge_radius * merge_radius
+    for i in range(n):
+        xi, yi = region_xy_centroids[i]
+        for j in range(i + 1, n):
+            xj, yj = region_xy_centroids[j]
+            dx, dy = xi - xj, yi - yj
+            if dx * dx + dy * dy < r2:
+                ra, rb = find(i), find(j)
+                if ra != rb:
+                    parent[ra] = rb
+
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    return list(groups.values())
+
+
+def create_support_tree(mesh, mask,
+                        trunk_w=4.0, merge_radius=2.0,
+                        leaf_shrink=0.7, trunk_clearance=1.0,
+                        xy_gap=0.35, z_gap=0.15, floor_z=0.1,
+                        debug_export_path=None):
+    """
+    Build tree-shaped support volumes under overhang regions (A4, v1).
+
+    Geometry per merged group of regions:
+      - Trunk: vertical box (W×W cross-section) at the group's area-weighted
+        XY centroid, from floor_z to z_top - trunk_clearance.
+      - Leaf cluster: single frustum tapering from trunk top up to the
+        contact-polygon bbox * leaf_shrink, at z = z_top - z_gap. One leaf
+        per group covers all that group's contact areas.
+
+    XY-merge: groups regions whose XY centroids are within `merge_radius` of
+    each other. The merged trunk uses the group's combined area-weighted XY
+    centroid; the leaf bbox covers all contact polygons in the group.
+
+    All operations live in MODEL-SPACE (XY = belt surface, Z = perpendicular
+    to belt). The downstream pipeline (subtract from model, wedge split,
+    3MF emit, Orca rectilinear infill) is identical to box-column flow.
+
+    Returns trimesh.Trimesh or None if no valid region.
+    """
+    if not mask.any():
+        print("No overhang faces — no support needed.")
+        return None
+
+    # ── Pass 1: per-region descriptors ───────────────────────────────────
+    centers = mesh.triangles_center
+    areas   = mesh.area_faces
+    regions = []
+    skipped_degenerate_z = 0
+    for region_faces in _overhang_regions(mesh, mask):
+        vs = mesh.vertices[mesh.faces[region_faces]].reshape(-1, 3)
+        z_top_raw = vs[:, 2].min()
+        z_top_for_leaf = z_top_raw - z_gap
+        z_trunk_top    = z_top_for_leaf - trunk_clearance
+        if z_trunk_top <= floor_z:
+            skipped_degenerate_z += 1
+            continue
+
+        tri_c = centers[region_faces]
+        tri_a = areas[region_faces]
+        total_area = float(tri_a.sum())
+        if total_area <= 0.0:
+            continue
+        x_c = float((tri_c[:, 0] * tri_a).sum() / total_area)
+        y_c = float((tri_c[:, 1] * tri_a).sum() / total_area)
+
+        # Contact-polygon bbox, shrunk by xy_gap for clearance from model.
+        x_lo = float(vs[:, 0].min()) + xy_gap
+        x_hi = float(vs[:, 0].max()) - xy_gap
+        y_lo = float(vs[:, 1].min()) + xy_gap
+        y_hi = float(vs[:, 1].max()) - xy_gap
+
+        regions.append({
+            "xy_c": (x_c, y_c),
+            "xy_bbox": (x_lo, x_hi, y_lo, y_hi),  # may be inverted for tiny regions
+            "z_top_for_leaf": z_top_for_leaf,
+            "z_trunk_top":    z_trunk_top,
+            "area": total_area,
+        })
+
+    if not regions:
+        print(f"  Tree: no valid regions ({skipped_degenerate_z} degenerate Z) — skipped.")
+        return None
+
+    # ── Pass 2: XY-merge ─────────────────────────────────────────────────
+    if merge_radius > 0.0:
+        groups_idx = _xy_merge_groups([r["xy_c"] for r in regions], merge_radius)
+    else:
+        groups_idx = [[i] for i in range(len(regions))]
+
+    # ── Pass 3: build mesh per group ─────────────────────────────────────
+    parts = []
+    n_with_leaf = 0
+    n_trunk_only = 0
+    for grp in groups_idx:
+        # Combined descriptors for the group.
+        total_area = sum(regions[i]["area"] for i in grp)
+        x_c = sum(regions[i]["xy_c"][0] * regions[i]["area"] for i in grp) / total_area
+        y_c = sum(regions[i]["xy_c"][1] * regions[i]["area"] for i in grp) / total_area
+        # Leaf bbox = union of all regions' shrunk contact bboxes.
+        x_lo = min(regions[i]["xy_bbox"][0] for i in grp)
+        x_hi = max(regions[i]["xy_bbox"][1] for i in grp)
+        y_lo = min(regions[i]["xy_bbox"][2] for i in grp)
+        y_hi = max(regions[i]["xy_bbox"][3] for i in grp)
+        # Z: take the highest leaf top in the group; trunk_top likewise. The
+        # group's trunk reaches up to whichever region is highest.
+        z_top_leaf  = max(regions[i]["z_top_for_leaf"] for i in grp)
+        z_trunk_top = max(regions[i]["z_trunk_top"]    for i in grp)
+
+        # Leaf top dimensions: contact bbox * leaf_shrink, recentered on (x_c, y_c).
+        bbox_w = max(0.0, x_hi - x_lo)
+        bbox_h = max(0.0, y_hi - y_lo)
+        leaf_w = bbox_w * leaf_shrink
+        leaf_h = bbox_h * leaf_shrink
+
+        # Trunk cross-section: trunk_w × trunk_w, recentered on (x_c, y_c).
+        # Add a leaf only if it strictly widens trunk in at least one axis.
+        add_leaf = (leaf_w > trunk_w) or (leaf_h > trunk_w)
+
+        if add_leaf:
+            trunk_h = z_trunk_top - floor_z
+            trunk_cz = (floor_z + z_trunk_top) * 0.5
+            parts.append(trimesh.creation.box(
+                extents=[trunk_w, trunk_w, trunk_h],
+                transform=trimesh.transformations.translation_matrix([x_c, y_c, trunk_cz]),
+            ))
+            # Frustum: bottom matches trunk top, top matches leaf bbox (clamped to ≥ trunk_w).
+            top_w = max(leaf_w, trunk_w)
+            top_h = max(leaf_h, trunk_w)
+            parts.append(_rect_frustum(
+                x_c, y_c, z_trunk_top, z_top_leaf,
+                trunk_w, trunk_w, top_w, top_h,
+            ))
+            n_with_leaf += 1
+        else:
+            # Trunk-only: extend the trunk all the way up to z_top_leaf.
+            full_h = z_top_leaf - floor_z
+            full_cz = (floor_z + z_top_leaf) * 0.5
+            parts.append(trimesh.creation.box(
+                extents=[trunk_w, trunk_w, full_h],
+                transform=trimesh.transformations.translation_matrix([x_c, y_c, full_cz]),
+            ))
+            n_trunk_only += 1
+
+    if not parts:
+        print("  Tree: no parts produced — skipped.")
+        return None
+
+    support = parts[0] if len(parts) == 1 else trimesh.util.concatenate(parts)
+
+    print(f"\nSupport tree (local space): {len(groups_idx)} group(s) "
+          f"from {len(regions)} region(s)")
+    print(f"  trunk-only: {n_trunk_only}, trunk+leaf: {n_with_leaf}")
+    if skipped_degenerate_z:
+        print(f"  Skipped: {skipped_degenerate_z} degenerate Z (overhang too close to floor)")
+    bb = support.bounds
+    print(f"  Overall bounds: X[{bb[0,0]:.2f},{bb[1,0]:.2f}] "
+          f"Y[{bb[0,1]:.2f},{bb[1,1]:.2f}] Z[{bb[0,2]:.2f},{bb[1,2]:.2f}]")
+    print(f"  Total volume: {support.volume:.2f} mm³")
+    _log_components(support, "after create_support_tree")
+
+    if debug_export_path:
+        try:
+            support.export(debug_export_path, file_type="stl")
+            print(f"  [debug] Tree mesh exported pre-subtract: {debug_export_path}")
+        except Exception as e:
+            print(f"  [debug] Tree export failed: {e}")
+
+    return support
+
+
 # ── Legacy Prism Generation (for STL compound mode) ──────────────────────────
 
 def shrink_triangle(verts, gap):
@@ -1453,6 +1679,30 @@ def main():
                              "wedge if keel gap is detected). Used by the GUI "
                              "auto-inject hook when the user toggles supports OFF "
                              "but the mesh still needs the keel-wedge fix.")
+    # ── A4 v1 tree supports (opt-in, additive — box columns remain default) ──
+    parser.add_argument("--tree", action="store_true",
+                        help="Use tree-shaped supports (trunk + leaf cluster per "
+                             "merged region group) instead of axis-aligned box "
+                             "columns. Opt-in; default is box columns. Tunable via "
+                             "--tree-* flags below.")
+    parser.add_argument("--tree-trunk-w", type=float, default=4.0,
+                        help="Tree trunk cross-section (mm, default 4.0). Trunk is "
+                             "always W×W square.")
+    parser.add_argument("--tree-merge-radius", type=float, default=2.0,
+                        help="Merge two trunks into one if their XY centroids are "
+                             "within this distance (mm, default 2.0). Set 0 to "
+                             "disable merging.")
+    parser.add_argument("--tree-leaf-shrink", type=float, default=0.7,
+                        help="Leaf top width as a fraction of contact-polygon bbox "
+                             "(default 0.7). Leaf is added only if it strictly "
+                             "widens the trunk in at least one axis.")
+    parser.add_argument("--tree-trunk-clearance", type=float, default=1.0,
+                        help="Z-gap (mm) between trunk top and the leaf-bottom; the "
+                             "leaf frustum spans this height (default 1.0).")
+    parser.add_argument("--tree-debug-export", default=None,
+                        help="If set, export the raw tree mesh to this path (.stl) "
+                             "BEFORE the model boolean subtract — useful for "
+                             "inspecting trunk/leaf geometry in MeshLab/trimesh.")
     args = parser.parse_args()
 
     model_path = Path(args.model)
@@ -1617,12 +1867,25 @@ def main():
         print("\nDone.")
         return
 
-    support_raw = create_support_box(
-        model_local, overhang_mask,
-        xy_gap=config["xy_gap"],
-        z_gap=config["z_gap"],
-        floor_z=config["floor_z"],
-    )
+    if args.tree:
+        support_raw = create_support_tree(
+            model_local, overhang_mask,
+            trunk_w=args.tree_trunk_w,
+            merge_radius=args.tree_merge_radius,
+            leaf_shrink=args.tree_leaf_shrink,
+            trunk_clearance=args.tree_trunk_clearance,
+            xy_gap=config["xy_gap"],
+            z_gap=config["z_gap"],
+            floor_z=config["floor_z"],
+            debug_export_path=args.tree_debug_export,
+        )
+    else:
+        support_raw = create_support_box(
+            model_local, overhang_mask,
+            xy_gap=config["xy_gap"],
+            z_gap=config["z_gap"],
+            floor_z=config["floor_z"],
+        )
 
     if support_raw is None:
         shutil.copy2(str(model_path), args.output)
