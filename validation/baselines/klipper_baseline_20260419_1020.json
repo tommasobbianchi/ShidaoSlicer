@@ -1,0 +1,365 @@
+{
+  "timestamp": "2026-04-19T10:20:30",
+  "printer_status": {
+    "printer": "IdeaFormer IR3 V2 (belt)",
+    "state": "standby",
+    "temperatures": {
+      "bed": {
+        "current": 22.49,
+        "target": 0.0
+      },
+      "extruder": {
+        "current": 22.47,
+        "target": 0.0
+      }
+    },
+    "position": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "homed_axes": "",
+    "print": {
+      "filename": "",
+      "progress": 0.0,
+      "duration": 0.0,
+      "filament_used": 0.0
+    },
+    "speed": {
+      "factor": 1.0,
+      "current": 1500.0
+    },
+    "fan_speed": 0.0
+  },
+  "temperatures": {
+    "temperatures": {
+      "heater_bed": {
+        "current": 22.5,
+        "target": 0.0,
+        "power": 0.0
+      },
+      "extruder": {
+        "current": 22.5,
+        "target": 0.0,
+        "power": 0.0
+      }
+    }
+  },
+  "mcu_status": {
+    "mcu": {
+      "version": "v0.12.0-446-gf1a8f1fc-dirty-20240307_113810-ideaformer",
+      "build_versions": "gcc: (15:8-2019-q3-1+b1) 8.3.1 20190703 (release) [gcc-8-branch revision 273027] binutils: (2.35.2-2+14+b2) 2.35.2",
+      "last_stats": {
+        "mcu_awake": 0.002,
+        "mcu_task_avg": 5e-06,
+        "mcu_task_stddev": 3e-06,
+        "bytes_write": 39849,
+        "bytes_read": 714836,
+        "bytes_retransmit": 0,
+        "bytes_invalid": 0,
+        "send_seq": 6475,
+        "receive_seq": 6475,
+        "retransmit_seq": 0,
+        "srtt": 0.001,
+        "rttvar": 0.0,
+        "rto": 0.025,
+        "ready_bytes": 0,
+        "upcoming_bytes": 0,
+        "freq": 168001409
+      }
+    },
+    "motion": {
+      "max_velocity": 400.0,
+      "max_accel": 20000.0,
+      "square_corner_velocity": 5.0
+    }
+  },
+  "printer_objects": {
+    "total_objects": 62,
+    "categories": {
+      "heaters": [
+        "extruder",
+        "gcode_macro PID_EXTRUDER",
+        "heater_bed",
+        "heater_fan HEAD2",
+        "heaters",
+        "tmc2209 extruder"
+      ],
+      "fans": [
+        "fan"
+      ],
+      "steppers": [
+        "stepper_enable",
+        "tmc2209 stepper_x",
+        "tmc2209 stepper_y",
+        "tmc2240 stepper_z"
+      ],
+      "sensors": [
+        "filament_motion_sensor encoder_sensor",
+        "filament_switch_sensor infinity_flow_a",
+        "filament_switch_sensor infinity_flow_b",
+        "manual_probe",
+        "probe",
+        "temperature_sensor IR3_CAN",
+        "temperature_sensor IR3_HOST",
+        "temperature_sensor IR3_MCU"
+      ],
+      "leds": [
+        "led led"
+      ],
+      "tools": [
+        "toolhead"
+      ],
+      "system": [
+        "gcode_move",
+        "mcu",
+        "motion_report",
+        "print_stats",
+        "webhooks"
+      ],
+      "other": [
+        "bed_mesh",
+        "configfile",
+        "display_status",
+        "gcode",
+        "gcode_macro CALIBRATE",
+        "gcode_macro CANCEL_PRINT",
+        "gcode_macro CONVEYOR_BELT_TEST",
+        "gcode_macro DEMOLDING",
+        "gcode_macro END_PRINT",
+        "gcode_macro FMS_off",
+        "gcode_macro FMS_on",
+        "gcode_macro LOAD_FILAMENT",
+        "gcode_macro M109",
+        "gcode_macro M190",
+        "gcode_macro OBP_BLOCKED_DIALOG",
+        "gcode_macro OBP_CHECK",
+        "gcode_macro OBP_PASS_NOTIFY",
+        "gcode_macro PAUSE",
+        "gcode_macro PID_BED",
+        "gcode_macro PRINT_END",
+        "gcode_macro PRINT_START",
+        "gcode_macro RESUME",
+        "gcode_macro Resonance_Compensation",
+        "gcode_macro START_PRINT",
+        "gcode_macro UNLOAD_FILAMENT",
+        "gcode_macro Y_Offset_DOWN",
+        "gcode_macro Y_Offset_UP",
+        "idle_timeout",
+        "infinity_flow",
+        "mcu IR3",
+        "output_pin Beep",
+        "pause_resume",
+        "query_endstops",
+        "system_stats",
+        "temperature_host IR3_HOST",
+        "virtual_sdcard"
+      ]
+    }
+  },
+  "bed_mesh": {
+    "profile_name": "default",
+    "mesh_min": [
+      0.0,
+      -0.01
+    ],
+    "mesh_max": [
+      250.0,
+      1.15
+    ],
+    "probed_matrix": [
+      [
+        -0.01,
+        0.12,
+        0.36,
+        0.65,
+        0.87,
+        1.15
+      ]
+    ],
+    "statistics": {
+      "min": -0.01,
+      "max": 1.15,
+      "range": 1.16,
+      "average": 0.5233
+    }
+  },
+  "bed_mesh_profiles": {
+    "current_profile": "default",
+    "profiles": [
+      {
+        "name": "default",
+        "active": true,
+        "mesh_params": {
+          "min_x": 0.0,
+          "max_x": 250.0,
+          "min_y": -0.01,
+          "max_y": 1.15,
+          "x_count": 6,
+          "y_count": 1,
+          "mesh_x_pps": 5,
+          "mesh_y_pps": 1,
+          "algo": "lagrange",
+          "tension": 0.2
+        }
+      }
+    ],
+    "count": 1
+  },
+  "print_history": {
+    "total_count": 10,
+    "returned": 10,
+    "jobs": [
+      {
+        "id": "00015C",
+        "filename": "obj_2_base scatoletta_PLA.gcode",
+        "status": "cancelled",
+        "start_time": 1776319657.3384123,
+        "end_time": 1776450998.0816374,
+        "print_duration": "36h 27m",
+        "total_duration": "36h 29m",
+        "filament_used_mm": 244784.5,
+        "filament_used_g": 305.98
+      },
+      {
+        "id": "00015B",
+        "filename": "obj_2_coperchio scatoletta_PLA.gcode",
+        "status": "cancelled",
+        "start_time": 1776250451.2138603,
+        "end_time": 1776315867.766429,
+        "print_duration": "18h 8m",
+        "total_duration": "18h 10m",
+        "filament_used_mm": 104887.5,
+        "filament_used_g": 131.11
+      },
+      {
+        "id": "00015A",
+        "filename": "Cube-PLA.gcode",
+        "status": "completed",
+        "start_time": 1776117106.6860898,
+        "end_time": 1776118204.5051057,
+        "print_duration": "16m",
+        "total_duration": "18m",
+        "filament_used_mm": 1213.8,
+        "filament_used_g": 1.52
+      },
+      {
+        "id": "000159",
+        "filename": "Cube-PLA.gcode",
+        "status": "klippy_shutdown",
+        "start_time": 1776115010.0709693,
+        "end_time": 1776115440.498603,
+        "print_duration": "6m",
+        "total_duration": "7m",
+        "filament_used_mm": 203.8,
+        "filament_used_g": 0.25
+      },
+      {
+        "id": "000158",
+        "filename": "obj_2_coperchio scatoletta_PLA_profilocommunity.gcode",
+        "status": "cancelled",
+        "start_time": 1776114413.7898157,
+        "end_time": 1776114705.812239,
+        "print_duration": "1m",
+        "total_duration": "4m",
+        "filament_used_mm": 56.3,
+        "filament_used_g": 0.07
+      },
+      {
+        "id": "000157",
+        "filename": "ikea_skadis_hook_two+pegs+flat+curved_petg.gcode",
+        "status": "cancelled",
+        "start_time": 1776114241.102912,
+        "end_time": 1776114364.1463754,
+        "print_duration": "0m",
+        "total_duration": "2m",
+        "filament_used_mm": 0.0,
+        "filament_used_g": 0.0
+      },
+      {
+        "id": "000156",
+        "filename": "ikea_skadis_hook_two+pegs+flat+curved_petg.gcode",
+        "status": "completed",
+        "start_time": 1776112220.0080464,
+        "end_time": 1776113720.3180966,
+        "print_duration": "22m",
+        "total_duration": "25m",
+        "filament_used_mm": 1895.4,
+        "filament_used_g": 2.37
+      },
+      {
+        "id": "000155",
+        "filename": "ikea_skadis_hook_two+pegs+flat+curved_petg.gcode",
+        "status": "completed",
+        "start_time": 1776109530.293241,
+        "end_time": 1776111805.2421908,
+        "print_duration": "34m",
+        "total_duration": "37m",
+        "filament_used_mm": 1895.4,
+        "filament_used_g": 2.37
+      },
+      {
+        "id": "000154",
+        "filename": "ikea_skadis_hook_two+pegs+flat+curved_petg.gcode",
+        "status": "completed",
+        "start_time": 1775506937.794739,
+        "end_time": 1775509058.2158005,
+        "print_duration": "34m",
+        "total_duration": "35m",
+        "filament_used_mm": 1895.4,
+        "filament_used_g": 2.37
+      },
+      {
+        "id": "000153",
+        "filename": "ikea_skadis_hook_two+pegs+flat+curved_petg.gcode",
+        "status": "completed",
+        "start_time": 1775504829.6202903,
+        "end_time": 1775506937.2915976,
+        "print_duration": "34m",
+        "total_duration": "35m",
+        "filament_used_mm": 1895.4,
+        "filament_used_g": 2.37
+      }
+    ]
+  },
+  "print_totals": {
+    "total_jobs": 345.0,
+    "total_time": {
+      "seconds": 1112539.1149782978,
+      "formatted": "309h 2m"
+    },
+    "total_print_time": {
+      "seconds": 1072271.9454306343,
+      "formatted": "297h 51m"
+    },
+    "total_filament_used": {
+      "mm": 1777509.6,
+      "meters": 1777.51,
+      "grams_approx": 2221.9
+    },
+    "longest_job": {
+      "seconds": 131342.942289879,
+      "formatted": "36h 29m"
+    },
+    "longest_print": {
+      "seconds": 131229.7736472,
+      "formatted": "36h 27m"
+    }
+  },
+  "log_summary": {
+    "timestamp": "2026-04-19 10:20:31",
+    "period": "last 1 hour",
+    "klippy": {
+      "errors": 0,
+      "warnings": 0,
+      "shutdowns": 0
+    },
+    "moonraker": {
+      "errors": 0,
+      "warnings": 0,
+      "requests": 0
+    },
+    "recent_events": []
+  }
+}
