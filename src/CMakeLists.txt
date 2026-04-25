@@ -81,6 +81,13 @@ if (SLIC3R_GUI)
     message(STATUS "wx libs: ${wxWidgets_LIBRARIES}")
 
     add_subdirectory(slic3r)
+
+    # Linux-only: isolated WebKitGTK host for the Device tab (Fluidd).
+    # Runs in a subprocess via GtkPlug to keep libjavascriptcoregtk out of
+    # Orca's main process (JSC SIGSEGV on first WebView load after slicing).
+    if(UNIX AND NOT APPLE)
+        add_subdirectory(orcabelt_fluidd_host)
+    endif()
 endif()
 
 if(ORCA_TOOLS)

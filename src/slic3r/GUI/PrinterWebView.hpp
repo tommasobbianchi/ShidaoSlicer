@@ -1,76 +1,84 @@
 #ifndef slic3r_PrinterWebView_hpp_
 #define slic3r_PrinterWebView_hpp_
 
-
-#include "wx/artprov.h"
-#include "wx/cmdline.h"
-#include "wx/notifmsg.h"
-#include "wx/settings.h"
-#include <wx/webview.h>
-#include <wx/string.h>
-
-#if wxUSE_WEBVIEW_EDGE
-#include "wx/msw/webview_edge.h"
-#endif
-
-#include "wx/webviewarchivehandler.h"
-#include "wx/webviewfshandler.h"
-#include "wx/numdlg.h"
-#include "wx/infobar.h"
-#include "wx/filesys.h"
-#include "wx/fs_arc.h"
-#include "wx/fs_mem.h"
-#include "wx/stdpaths.h"
 #include <wx/panel.h>
-#include <wx/tbarbase.h>
-#include "wx/textctrl.h"
+#include <wx/string.h>
 #include <wx/timer.h>
 
+#include <sys/types.h>  // pid_t
+
+class wxStaticText;
+class wxButton;
+class wxBoxSizer;
 
 namespace Slic3r {
 namespace GUI {
 
-
+// PrinterWebView — process-isolated Fluidd/Mainsail host (overlay model).
+//
+// Why this exists: embedding Fluidd's Vue SPA inside Orca's main process
+// exposes libjavascriptcoregtk's JSC runtime to Plater/TBB/OpenGL state
+// and reliably SIGSEGVs on the first WebView load after a slice.
+//
+// Design: the actual WebKit widget runs in an external process
+// (orcabelt-fluidd-host) as a borderless undecorated toplevel window.
+// PrinterWebView is just a placeholder wxPanel that tracks its own
+// screen geometry and tells the subprocess where to position itself
+// (GEOM x y w h commands over the child's stdin). On Pause/HIDE the
+// subprocess unmaps; on Resume/SHOW it re-maps and re-navigates. If the
+// subprocess crashes, Orca stays alive — we re-spawn on next activation.
 class PrinterWebView : public wxPanel {
 public:
-    PrinterWebView(wxWindow *parent);
-    virtual ~PrinterWebView();
+    PrinterWebView(wxWindow* parent);
+    ~PrinterWebView() override;
 
     void load_url(wxString& url, wxString apikey = "");
-    void UpdateState();
-    void OnClose(wxCloseEvent& evt);
-    void OnError(wxWebViewEvent& evt);
-    void OnLoaded(wxWebViewEvent& evt);
     void reload();
     void update_mode();
 
-    // ORCA_BELT: pause/resume the embedded JavaScript VM by swapping the
-    // page to about:blank when the Device tab isn't visible. Fluidd's Vue
-    // SPA keeps WebSocket reconnect timers and GC running on the GTK main
-    // loop even when hidden, which races with Plater::load_files parsing a
-    // 3MF (libjavascriptcoregtk SIGSEGV observed 2026-04-24). about:blank
-    // unloads the SPA entirely.
     void Pause();
     void Resume();
 
     bool Show(bool show = true) override;
 
+    void UpdateState();
+    void OnClose(wxCloseEvent& evt);
+
 private:
-    void SendAPIKey();
+    void ensure_started();
+    void stop_subprocess();
+    bool send_command(const char* cmd);
+    void reap_if_dead();
+    void on_geom_timer(wxTimerEvent& evt);
+    void push_geom(bool force);
+    bool compute_screen_rect(int& x, int& y, int& w, int& h) const;
+    void enter_fallback_mode();
+    void exit_fallback_mode();
+    void on_open_in_browser(wxCommandEvent& evt);
+    void on_retry_embed(wxCommandEvent& evt);
 
-    wxWebView* m_browser;
-    long m_zoomFactor;
+    wxBoxSizer*   m_overlay_sizer = nullptr;
+    wxStaticText* m_placeholder    = nullptr;
+    wxStaticText* m_fallback_msg   = nullptr;
+    wxStaticText* m_fallback_url   = nullptr;
+    wxButton*     m_fallback_btn   = nullptr;
+    wxButton*     m_retry_btn      = nullptr;
+    wxTimer*      m_geom_timer     = nullptr;
+
+    pid_t m_child_pid = 0;
+    int   m_child_stdin_fd = -1;
+    long long m_spawn_time_ms = 0;  // monotonic ms when subprocess started
+    bool      m_fallback_mode = false;
+
+    wxString m_active_url;
     wxString m_apikey;
-    bool m_apikey_sent;
-
-    wxString m_url_deferred;
-    wxString m_active_url;   // last URL loaded, restored by Resume()
     bool     m_paused = false;
 
-    // DECLARE_EVENT_TABLE()
+    int m_last_x = INT32_MIN, m_last_y = INT32_MIN;
+    int m_last_w = -1, m_last_h = -1;
 };
 
-} // GUI
-} // Slic3r
+} // namespace GUI
+} // namespace Slic3r
 
-#endif /* slic3r_Tab_hpp_ */
+#endif /* slic3r_PrinterWebView_hpp_ */
