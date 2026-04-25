@@ -1144,11 +1144,13 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
 
     inf_str = str(infill_density).rstrip("%") + "%"
 
-    # grid = OrcaSlicer's default pattern for normal (non-tree) supports:
-    # perpendicular lines breaking cleanly off the model, stacking rigidly
-    # across layers. Gyroid (default infill pattern) delaminates mid-print
-    # because each layer only touches the previous at two points of the
-    # sinusoid — observed HW failure 2026-04-23.
+    # rectilinear = single-direction lines per layer, alternating 90° between
+    # adjacent layers. On the 45° oblique slice this maps to physically
+    # crossed lines (1 layer = 1 belt sweep) → still rigid, but uses ~⅓ less
+    # material than grid (which lays both directions every layer) and detaches
+    # more cleanly from the model underside. Gyroid is FORBIDDEN here: it
+    # touches the prior layer at only two sinusoid nodes per period, which
+    # delaminates mid-print on belt geometry — HW failure 2026-04-23.
     support_part_xml = (
         f'    <part id="{SUPPORT_OBJ_ID}" subtype="normal_part">\n'
         f'      <metadata key="name" value="support"/>\n'
@@ -1157,7 +1159,7 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         f'      <metadata key="top_shell_layers" value="0"/>\n'
         f'      <metadata key="bottom_shell_layers" value="0"/>\n'
         f'      <metadata key="sparse_infill_density" value="{inf_str}"/>\n'
-        f'      <metadata key="sparse_infill_pattern" value="grid"/>\n'
+        f'      <metadata key="sparse_infill_pattern" value="rectilinear"/>\n'
         f'      <metadata key="enable_support" value="0"/>\n'
         f'      <mesh_stat edges_fixed="0" degenerate_facets="0" '
         f'facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n'
@@ -1425,9 +1427,10 @@ def main():
                         help="Output path (default: <model>_supported.3mf)")
     parser.add_argument("-c", "--config", default=None,
                         help="Support config INI file")
-    parser.add_argument("--infill", default="25%",
-                        help="Support infill density (default: 25%% — denser fills "
-                             "the keel wedge earlier on the belt)")
+    parser.add_argument("--infill", default="15%",
+                        help="Support infill density (default: 15%% — light, "
+                             "easy detach. Pair with rectilinear pattern; "
+                             "wedge stays at 100%% for keel adhesion)")
     parser.add_argument("--wedge-layers", type=int, default=10,
                         help="Solid-infill wedge base: N virtual layers (default: 10, "
                              "≈2.8mm at 0.2mm layer / 45°). Set 0 to disable.")
