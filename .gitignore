@@ -64,3 +64,9 @@ validation/screenshots/
 validation/tests/directional/example_output.png
 # Detached upstream deps tree (source removed in a5611f9a0b; build/ + DL_CACHE/ already ignored above)
 /deps/
+.gitnexus
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
