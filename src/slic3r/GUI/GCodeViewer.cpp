@@ -2484,16 +2484,33 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
             // Leave Z_model as produced by belt_to_model so each layer renders
             // as an honest 45° plane.
 
-            // is_model_extrude still needed for XYZ alignment below (excludes
-            // support/skirt/brim so their extents don't skew shell-toolpath shift).
+            // is_model_extrude is used to compute the XYZ bbox that anchors the
+            // toolpath shift to the shell. ORCA_BELT: WHITELIST instead of
+            // blacklist — the start-gcode purge/prime/belt-advance lines emit
+            // Extrude moves with role erMixed/erIroning/erWipeTower (depending
+            // on processor heuristics) at Z_g=20mm (belt-advance Z value), which
+            // a blacklist accidentally counted as model extrudes. Their Y_g=0
+            // → recovered Y_m=Z_g-0=20 inflated ext_y_min to ~20mm and shifted
+            // the entire toolpath off the shell by Z_max_model. Only count true
+            // perimeter/infill/bridge/gap as the model bbox source.
             auto is_model_extrude = [](const GCodeProcessorResult::MoveVertex& m) {
-                return m.type == EMoveType::Extrude &&
-                       m.extrusion_role != erCustom &&
-                       m.extrusion_role != erSkirt &&
-                       m.extrusion_role != erBrim &&
-                       m.extrusion_role != erNone &&
-                       m.extrusion_role != erSupportMaterial &&
-                       m.extrusion_role != erSupportMaterialInterface;
+                if (m.type != EMoveType::Extrude) return false;
+                switch (m.extrusion_role) {
+                    case erPerimeter:
+                    case erExternalPerimeter:
+                    case erOverhangPerimeter:
+                    case erInternalInfill:
+                    case erSolidInfill:
+                    case erTopSolidInfill:
+                    case erBottomSurface:
+                    case erIroning:
+                    case erBridgeInfill:
+                    case erInternalBridgeInfill:
+                    case erGapFill:
+                        return true;
+                    default:
+                        return false;
+                }
             };
 
             // Align toolpaths with model shell on ALL three axes.
@@ -2503,19 +2520,9 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
             // (X=centered, Y≈0..h, Z≈0..h) while the mesh stays at its world
             // position. Shift toolpaths to match the mesh's world-space bbox.
 
-            // 1. Compute model-extrude-only XYZ range (excludes support, skirt, brim)
-            float ext_x_min = std::numeric_limits<float>::max(), ext_x_max = std::numeric_limits<float>::lowest();
-            float ext_y_min = std::numeric_limits<float>::max(), ext_y_max = std::numeric_limits<float>::lowest();
-            float ext_z_min = std::numeric_limits<float>::max(), ext_z_max = std::numeric_limits<float>::lowest();
-            for (const auto& m : moves) {
-                if (is_model_extrude(m)) {
-                    ext_x_min = std::min(ext_x_min, m.position.x()); ext_x_max = std::max(ext_x_max, m.position.x());
-                    ext_y_min = std::min(ext_y_min, m.position.y()); ext_y_max = std::max(ext_y_max, m.position.y());
-                    ext_z_min = std::min(ext_z_min, m.position.z()); ext_z_max = std::max(ext_z_max, m.position.z());
-                }
-            }
-
-            // 2. Get shell XYZ range from model instances (world space)
+            // 1. Get shell XYZ range from model instances (world space) FIRST,
+            //    so the ext-bbox loop can use shell_x range to filter
+            //    start-gcode outliers (prime lines at X=250 etc).
             float shell_x_min = std::numeric_limits<float>::max(), shell_x_max = std::numeric_limits<float>::lowest();
             float shell_y_min = std::numeric_limits<float>::max(), shell_y_max = std::numeric_limits<float>::lowest();
             float shell_z_min = std::numeric_limits<float>::max(), shell_z_max = std::numeric_limits<float>::lowest();
@@ -2528,6 +2535,28 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                         shell_z_min = std::min(shell_z_min, static_cast<float>(wbb.min.z())); shell_z_max = std::max(shell_z_max, static_cast<float>(wbb.max.z()));
                     }
                 }
+            }
+
+            // 2. Compute model-extrude-only XYZ range with outlier filtering:
+            //    - Z_m > 0.05: skip belt-advance/purge moves with Y_g=0
+            //    - X within shell_x_range±tol: skip prime-line moves at X=250
+            //      that pass the role whitelist but live way outside the model
+            //    Both filters guard against start-gcode injections that would
+            //    otherwise inflate ext_bbox and shift the entire toolpath off
+            //    the shell by ~Z_max_model.
+            const float x_tol = 5.0f;
+            float ext_x_min = std::numeric_limits<float>::max(), ext_x_max = std::numeric_limits<float>::lowest();
+            float ext_y_min = std::numeric_limits<float>::max(), ext_y_max = std::numeric_limits<float>::lowest();
+            float ext_z_min = std::numeric_limits<float>::max(), ext_z_max = std::numeric_limits<float>::lowest();
+            for (const auto& m : moves) {
+                if (!is_model_extrude(m)) continue;
+                if (m.position.z() <= 0.05f) continue;
+                if (shell_x_min != std::numeric_limits<float>::max() &&
+                    (m.position.x() < shell_x_min - x_tol || m.position.x() > shell_x_max + x_tol))
+                    continue;
+                ext_x_min = std::min(ext_x_min, m.position.x()); ext_x_max = std::max(ext_x_max, m.position.x());
+                ext_y_min = std::min(ext_y_min, m.position.y()); ext_y_max = std::max(ext_y_max, m.position.y());
+                ext_z_min = std::min(ext_z_min, m.position.z()); ext_z_max = std::max(ext_z_max, m.position.z());
             }
 
             Vec3f shift(0.0f, 0.0f, 0.0f);
