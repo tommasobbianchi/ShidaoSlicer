@@ -2179,3 +2179,42 @@ void remove_spikes(ExPolygons &expolygons, const SpikeDesc &spike_desc)
 }
 
 #endif // REMOVE_SPIKES
+
+// -----------------------------------------------------------------------------
+// Headless text-to-mesh helper. Mirrors the synchronous half of
+// EmbossJob::try_create_mesh() (src/slic3r/GUI/Jobs/EmbossJob.cpp) but with no
+// dependency on the GUI Job/DataBase plumbing, so MCP / CLI / tests can render
+// labels in one synchronous call. Keep the math identical to the GUI path so a
+// future refactor can dedupe via a shared core.
+// -----------------------------------------------------------------------------
+indexed_triangle_set Emboss::make_text_mesh(const std::string &font_path,
+                                            const std::string &text,
+                                            float              size_mm,
+                                            float              depth_mm)
+{
+    if (text.empty() || size_mm <= 0.f || depth_mm <= 0.f)
+        return {};
+
+    auto font_uptr = create_font_file(font_path.c_str());
+    if (!font_uptr)
+        return {};
+
+    FontFileWithCache font(std::move(font_uptr));
+
+    FontProp font_prop(size_mm);
+
+    HealedExPolygons hep = text2shapes(font, text.c_str(), font_prop);
+    ExPolygons &shapes = hep.expolygons;
+    if (shapes.empty())
+        return {};
+
+    // shape coords are in scaled-integer space (1 unit = SHAPE_SCALE mm).
+    // ProjectZ depth and the inverse Eigen::Scaling restore mm in the result.
+    const double scale = SHAPE_SCALE;
+    const double depth_scaled = static_cast<double>(depth_mm) / scale;
+
+    auto projectZ = std::make_unique<ProjectZ>(depth_scaled);
+    Transform3d  tr = Transform3d::Identity() * Eigen::Scaling(scale);
+    ProjectTransform project(std::move(projectZ), tr);
+    return polygons2model(shapes, project);
+}
