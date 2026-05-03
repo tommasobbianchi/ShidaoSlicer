@@ -2208,9 +2208,11 @@ indexed_triangle_set Emboss::make_text_mesh(const std::string &font_path,
     if (shapes.empty())
         return {};
 
-    // shape coords are in scaled-integer space (1 unit = SHAPE_SCALE mm).
-    // ProjectZ depth and the inverse Eigen::Scaling restore mm in the result.
-    const double scale = SHAPE_SCALE;
+    // shape coords are integer Points in (font-em / SHAPE_SCALE) units.
+    // get_text_shape_scale = (size_in_mm / unit_per_em) * SHAPE_SCALE is the
+    // factor that maps integer back to mm; the GUI Emboss gizmo stores it as
+    // EmbossShape::scale (see GLGizmoEmboss.cpp:3240).
+    const double scale = get_text_shape_scale(font_prop, *font.font_file);
     const double depth_scaled = static_cast<double>(depth_mm) / scale;
 
     auto projectZ = std::make_unique<ProjectZ>(depth_scaled);
