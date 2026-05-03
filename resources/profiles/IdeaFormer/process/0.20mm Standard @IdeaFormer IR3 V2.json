@@ -14,7 +14,7 @@
     "skirt_loops": "0",
     "skirt_distance": "0",
     "sparse_infill_pattern": "grid",
-    "support_base_pattern": "rectilinear",
+    "support_base_pattern": "rectilinear-grid",
     "support_interface_pattern": "rectilinear",
     "layer_change_gcode": "G92 E0 ; belt: reset extruder at layer change (relative E)",
     "compatible_printers": [
