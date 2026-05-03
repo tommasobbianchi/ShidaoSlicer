@@ -56,6 +56,22 @@ std::vector<McpToolDef> get_all_tool_definitions()
     });
 
     tools.push_back({
+        "model_add_text",
+        "Add 3D text as a new object on the build plate. The text is rendered as glyph outlines extruded vertically by depth_mm. Default font ships with OrcaSlicer (HarmonyOS Sans Bold) and covers Latin and CJK glyphs. The object is placed at the build-plate origin; use object_transform afterwards to position it. Single-line only -- newlines are treated as plain glyphs.",
+        {
+            {"type", "object"},
+            {"properties", {
+                {"text",      {{"type", "string"}, {"description", "UTF-8 text to render"}}},
+                {"size_mm",   {{"type", "number"}, {"description", "Glyph height in mm (default: 5)"}}},
+                {"depth_mm",  {{"type", "number"}, {"description", "Extrusion depth in mm; this is the Z size of the resulting prism (default: 0.6)"}}},
+                {"font_path", {{"type", "string"}, {"description", "Absolute path to a TTF/OTF font file. Defaults to bundled HarmonyOS_Sans_SC_Bold.ttf if omitted"}}}
+            }},
+            {"required", json::array({"text"})}
+        },
+        "model.add_text"
+    });
+
+    tools.push_back({
         "model_load_file",
         "Load a 3D model file onto the build plate. Supports STL, 3MF, OBJ, and STEP formats. The path must be absolute. Large models (1M+ triangles) may cause slower processing. Bypasses Plater modal dialogs so it is safe to call from headless/xvfb contexts. Returns the indices of all newly added objects (3MF files may contain several).",
         {

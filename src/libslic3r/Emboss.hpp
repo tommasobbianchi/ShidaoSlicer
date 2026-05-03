@@ -155,6 +155,19 @@ namespace Emboss
     HealedExPolygons  text2shapes (FontFileWithCache &font, const char *text,         const FontProp &font_prop, const std::function<bool()> &was_canceled = []() {return false;});
     ExPolygonsWithIds text2vshapes(FontFileWithCache &font, const std::wstring& text, const FontProp &font_prop, const std::function<bool()>& was_canceled = []() {return false;});
 
+    /// Synchronous text-to-mesh helper for headless callers (MCP, CLI, tests).
+    /// Wraps create_font_file + text2shapes + polygons2model so the GUI Emboss
+    /// gizmo's job/async machinery is not required.
+    /// font_path: absolute path to a TTF/OTF font file
+    /// text:      UTF-8 text (single line; '\n' is treated as plain glyph)
+    /// size_mm:   glyph height in mm (FontProp::size_in_mm)
+    /// depth_mm:  extrusion depth in mm (Z size of resulting prism)
+    /// Returns an empty mesh on failure (font missing, empty text, no glyphs).
+    indexed_triangle_set make_text_mesh(const std::string &font_path,
+                                        const std::string &text,
+                                        float               size_mm,
+                                        float               depth_mm);
+
     const unsigned ENTER_UNICODE = static_cast<unsigned>('\n');
     /// Sum of character '\n'
     unsigned get_count_lines(const std::wstring &ws);
