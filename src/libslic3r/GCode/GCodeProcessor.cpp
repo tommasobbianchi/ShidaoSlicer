@@ -3038,6 +3038,14 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
         return;
     }
 
+    // ORCA_BELT: also parse non-BBL ";Z:<value>" tag (emitted by GCode.cpp:4327
+    // for non-Bambu printers). This is the slicer-layer Z (Z_virt for belt mode),
+    // needed by GCodeViewer's belt_to_model recovery to obtain Y_model correctly.
+    if (boost::starts_with(comment, "Z:") || boost::starts_with(comment, " Z:")) {
+        m_print_z = get_z_height(comment);
+        return;
+    }
+
     // wipe start tag
     if (boost::starts_with(comment, reserved_tag(ETags::Wipe_Start))) {
         m_wiping = true;

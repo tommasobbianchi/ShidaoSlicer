@@ -2453,26 +2453,32 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
             // Recovery (what this lambda computes):
             //   Z_model = Y_gcode / √2
             //   Y_model = Z_gcode − Z_model
-            auto belt_to_model = [inv_sqrt2](Vec3f& p) {
+            // ORCA_BELT: Recovery formula uses MoveVertex.print_z (Z_virt = layer_z)
+            // instead of position.z() (Z_mach = inclined gcode Z which embeds Y).
+            // The gcode emits Z_mach = nominal_z + Y_g·tan(α), so reconstructing
+            // Y_model from position.z() requires backing out the Y·tan term;
+            // print_z is the slicer-layer Z directly and is the right Z_virt.
+            // (Requires GCodeProcessor to populate m_print_z from ";Z:" comments
+            // for non-BBL printers — see GCodeProcessor.cpp comment parser.)
+            auto belt_to_model = [inv_sqrt2](Vec3f& p, float print_z) {
                 const float y_mach = p.y();
-                const float z_mach = p.z();
-                p.z() = y_mach * inv_sqrt2;       // Z_model = Y_gcode / √2
-                p.y() = z_mach - p.z();           // Y_model = Z_gcode − Z_model
+                p.z() = y_mach * inv_sqrt2;          // Z_model = Y_gcode / √2
+                p.y() = print_z - p.z();             // Y_model = Z_virt − Z_model
             };
 
             auto& moves = const_cast<GCodeProcessorResult&>(gcode_result).moves;
 
-            // Save layer keys before transform: Z_mach is constant per layer
-            // (belt gcode uses separated Z/XY: Z set once at layer change, XY for moves)
+            // Save layer keys before transform: print_z is the slicer-layer Z
+            // (one value per layer), used by the slider grouping below.
             layer_keys.assign(moves.size(), 0.0f);
             for (size_t i = 0; i < moves.size(); ++i)
-                layer_keys[i] = moves[i].position.z();
+                layer_keys[i] = moves[i].print_z;
 
-            // Apply belt_to_model transform
+            // Apply belt_to_model transform per-move (uses each move's print_z)
             for (auto& move : moves) {
-                belt_to_model(move.position);
+                belt_to_model(move.position, move.print_z);
                 for (auto& pt : move.interpolation_points)
-                    belt_to_model(pt);
+                    belt_to_model(pt, move.print_z);
             }
 
             // ORCA_BELT: NO Z quantization. A belt "slicer-layer" at Z_gcode=c
