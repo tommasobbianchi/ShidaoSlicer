@@ -15,10 +15,7 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Print.hpp"
-#include "libslic3r/Emboss.hpp"
-#include "libslic3r/Utils.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
-#include <boost/filesystem.hpp>
 #include <miniz.h>
 #include <GL/glew.h>
 
@@ -264,49 +261,6 @@ void CommandDispatch::register_model_commands() {
                 objects.push_back(o);
             }
             return json{{"objects", objects}};
-        });
-    });
-
-    register_command("model.add_text", [this](const json& params) -> json {
-        return call_on_gui_thread([&]() -> json {
-            std::string text = params.value("text", "");
-            if (text.empty())
-                return json{{"error", "text parameter is required and must not be empty"}};
-            double size_mm  = params.value("size_mm",  5.0);
-            double depth_mm = params.value("depth_mm", 0.6);
-            std::string font_path = params.value("font_path", "");
-            if (font_path.empty())
-                font_path = Slic3r::resources_dir() + "/fonts/HarmonyOS_Sans_SC_Bold.ttf";
-            if (!boost::filesystem::exists(font_path))
-                return json{{"error", "font file not found: " + font_path}};
-
-            indexed_triangle_set its = Emboss::make_text_mesh(
-                font_path, text,
-                static_cast<float>(size_mm),
-                static_cast<float>(depth_mm));
-            if (its.indices.empty())
-                return json{{"error", "Failed to generate mesh for text (font load? unsupported glyphs? size/depth too small?)"}};
-
-            TriangleMesh mesh(std::move(its));
-
-            auto* plater = wxGetApp().plater();
-            auto& model = plater->model();
-
-            ModelObject* obj = model.add_object();
-            obj->name = std::string("text_") + std::to_string(model.objects.size());
-            obj->add_volume(std::move(mesh));
-            obj->add_instance();
-
-            int new_obj_idx = (int)model.objects.size() - 1;
-            for (size_t i = 0; i < obj->instances.size(); ++i)
-                plater->get_partplate_list().notify_instance_update(new_obj_idx, (int)i, true);
-
-            plater->get_view3D_canvas3D()->reload_scene(true, true);
-
-            json result;
-            result["object_index"] = new_obj_idx;
-            result["name"] = obj->name;
-            return result;
         });
     });
 
