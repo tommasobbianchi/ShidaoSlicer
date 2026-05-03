@@ -3679,6 +3679,17 @@ void MainFrame::select_tab(size_t tab/* = size_t(-1)*/)
         //size_t new_selection = tab == (size_t)(-1) ? m_last_selected_tab : (m_layout == ESettingsLayout::Dlg && tab != 0) ? tab - 1 : tab;
         size_t new_selection = tab == (size_t)(-1) ? m_last_selected_tab : tab;
 
+        // ORCA_BELT: returning to Prepare from Preview should hide the support
+        // volumes auto-injected by belt_supports_inject_volumes() during the
+        // previous slice. The user wants the Prepare canvas to show only their
+        // original mesh; the next slice will strip-and-re-inject anyway, so
+        // there is no functional regression.
+        if (m_plater &&
+            new_selection == (size_t)tp3DEditor &&
+            m_tabpanel->GetSelection() == (int)tpPreview) {
+            m_plater->belt_clear_injected_support_volumes();
+        }
+
         if (m_tabpanel->GetSelection() != (int)new_selection)
             m_tabpanel->SetSelection(new_selection);
 #ifdef _MSW_DARK_MODE

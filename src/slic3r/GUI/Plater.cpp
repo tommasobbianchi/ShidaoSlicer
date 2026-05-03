@@ -15305,7 +15305,60 @@ bool Plater::is_multi_extruder_ams_empty()
 // applies, inject_volumes passes --no-supports so the script emits only
 // the keel wedge and leaves overhangs alone.
 //
+// Volume-name markers emitted by validation/support_preprocess.py for the
+// volumes it injects (see export_3mf_two_volumes). Used to identify and
+// strip stale injection so the preprocess can re-run on every slice and
+// honour the current GUI Enable-Supports toggle.
+static constexpr const char* BELT_SUPPORT_VOLUME_NAME = "support";
+static constexpr const char* BELT_WEDGE_VOLUME_NAME   = "support_wedge";
+
+static bool belt_is_injected_support_volume(const ModelVolume* v)
+{
+    if (!v) return false;
+    return v->name == BELT_SUPPORT_VOLUME_NAME || v->name == BELT_WEDGE_VOLUME_NAME;
+}
+
+static size_t belt_count_real_volumes(const ModelObject* obj)
+{
+    if (!obj) return 0;
+    size_t n = 0;
+    for (const ModelVolume* v : obj->volumes)
+        if (!belt_is_injected_support_volume(v)) ++n;
+    return n;
+}
+
+static bool belt_has_injected_support_volumes(const ModelObject* obj)
+{
+    if (!obj) return false;
+    for (const ModelVolume* v : obj->volumes)
+        if (belt_is_injected_support_volume(v)) return true;
+    return false;
+}
+
+static void belt_strip_injected_support_volumes(ModelObject* obj)
+{
+    if (!obj) return;
+    for (size_t i = obj->volumes.size(); i-- > 0; ) {
+        if (belt_is_injected_support_volume(obj->volumes[i]))
+            obj->delete_volume(i);
+    }
+    obj->invalidate_bounding_box();
+}
+
 // Returns: 0 = skip preprocess, 1 = preprocess (full), 2 = preprocess (keel-only)
+//
+// Reads the GUI's Enable-Supports state from the active print preset only.
+// Reading per-object enable_support here would deadlock the toggle: the
+// inject_volumes step intentionally sets per-object enable_support=false to
+// keep Orca's native tree generator off (it would emit virtual-space columns
+// failing gate R7), so after the first slice every later read sees `false`
+// regardless of the GUI checkbox. The print-preset value IS what the
+// checkbox writes; that's the source of truth we want here.
+//
+// Volume gating uses count-of-real-volumes (= total minus volumes named
+// "support"/"support_wedge"), so a model that already has injected volumes
+// from a previous slice is treated as a single real volume and the gate
+// proceeds. inject_volumes strips stale injection before re-exporting tmp_in.
 static int belt_supports_preprocess_mode(Plater& plater)
 {
     const auto& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -15316,17 +15369,20 @@ static int belt_supports_preprocess_mode(Plater& plater)
     }
 
     const auto& objs = plater.model().objects;
-    if (objs.size() != 1)             { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: objs.size=" << objs.size(); return 0; }
-    if (!objs[0])                     return 0;
-    if (objs[0]->volumes.size() != 1) { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: volumes.size=" << objs[0]->volumes.size() << " (already injected or multi)"; return 0; }
-    if (objs[0]->instances.empty())   { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no instances"; return 0; }
+    if (objs.size() != 1)           { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: objs.size=" << objs.size(); return 0; }
+    if (!objs[0])                   return 0;
+    if (objs[0]->instances.empty()) { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no instances"; return 0; }
 
-    // (a) User-facing enable_support: per-object override wins, otherwise
-    // fall back to the active print preset's value.
+    const size_t real_vols = belt_count_real_volumes(objs[0]);
+    if (real_vols != 1) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: real_volumes=" << real_vols
+                                   << " (multi-volume / modifier model not supported)";
+        return 0;
+    }
+
+    // (a) User-facing enable_support — print preset only (see comment above).
     const auto& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    bool wants_supports = print_cfg.opt_bool("enable_support");
-    if (const ConfigOption* obj_es = objs[0]->config.option("enable_support"))
-        wants_supports = obj_es->getBool();
+    const bool wants_supports = print_cfg.opt_bool("enable_support");
 
     // (b) Keel-gap detection — instance-transformed world bbox. Centered-origin
     // STLs (Z_min = -H/2) get the auto keel-align shift before this point;
@@ -15376,6 +15432,31 @@ static void belt_supports_log(const std::string& msg)
         BOOST_LOG_TRIVIAL(info)    << "[BELT_SUPPORTS] " << msg;
 }
 
+// ORCA_BELT: public entry to strip injected belt-support volumes from every
+// object on the plate. Used when returning to the Prepare tab so the user
+// sees only their original mesh, not the preprocess-added support/wedge
+// volumes from the previous slice. Safe to call any time — the next slice's
+// belt_supports_inject_volumes() begins with a strip-then-inject anyway.
+void Plater::belt_clear_injected_support_volumes()
+{
+    bool changed = false;
+    for (ModelObject* obj : this->model().objects) {
+        if (belt_has_injected_support_volumes(obj)) {
+            belt_strip_injected_support_volumes(obj);
+            changed = true;
+        }
+    }
+    if (changed) {
+        // Refresh the 3D scene so the GLVolumes for the stripped support
+        // volumes are removed from rendering. Without this the user would
+        // still see them until the next manual reload_scene tick.
+        this->update();
+        if (this->get_view3D_canvas3D())
+            this->get_view3D_canvas3D()->reload_scene(true, true);
+        belt_supports_log("Prepare-tab entry: stripped injected support volumes");
+    }
+}
+
 static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
 {
     namespace fs = boost::filesystem;
@@ -15384,6 +15465,18 @@ static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
     if (script.empty()) {
         belt_supports_log("ERROR: support_preprocess.py not found");
         return false;
+    }
+
+    // Strip any stale injected volumes from a previous slice so the
+    // preprocessor sees the bare model. Without this, every reslice would
+    // accumulate support/wedge geometry and the toggle off-then-on cycle
+    // would never converge to a clean state.
+    if (!plater.model().objects.empty()) {
+        ModelObject* obj0 = plater.model().objects[0];
+        if (belt_has_injected_support_volumes(obj0)) {
+            belt_supports_log("stripping stale injected volumes before re-preprocess");
+            belt_strip_injected_support_volumes(obj0);
+        }
     }
 
     auto ts = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -15482,7 +15575,9 @@ void Plater::reslice()
     }
 
     // Orca belt: pre-process supports + keel wedge via external script.
-    // Idempotent: skips if already injected (objects[0]->volumes.size()>1).
+    // Re-runs every slice on a stripped-bare model, so toggling the GUI
+    // Enable-Supports checkbox between slices correctly adds or removes
+    // injected volumes.
     // mode: 0=skip, 1=full (overhang supports + keel wedge), 2=keel-only.
     const int belt_mode = belt_supports_preprocess_mode(*this);
     if (belt_mode != 0) {
@@ -15493,6 +15588,13 @@ void Plater::reslice()
         } catch (...) {
             belt_supports_log("EXCEPTION: unknown");
         }
+    } else if (!this->model().objects.empty()
+               && belt_has_injected_support_volumes(this->model().objects[0])) {
+        // mode==0 + stale injection = user just toggled supports off (and the
+        // model has no keel gap that would force keep-injected). Strip so the
+        // next slice runs on the bare model — no more lingering support tower.
+        belt_supports_log("mode=0 + stale injection: stripping (user toggled supports off)");
+        belt_strip_injected_support_volumes(this->model().objects[0]);
     }
 
     // Orca: regenerate CalibPressureAdvancePattern custom G-code to apply changes

@@ -502,6 +502,12 @@ public:
     void export_toolpaths_to_obj() const;
     void reslice();
     void record_slice_preset(std::string action);
+
+    // ORCA_BELT: strip injected support volumes (added by belt_supports_inject_volumes
+    // during slice) from all objects. Called when leaving Preview to enter Prepare,
+    // so the Prepare view shows only the user's mesh, not the auto-added supports.
+    // Next slice will re-strip-and-inject anyway, so no functional regression.
+    void belt_clear_injected_support_volumes();
     void reslice_SLA_supports(const ModelObject &object, bool postpone_error_messages = false);
     void reslice_SLA_hollowing(const ModelObject &object, bool postpone_error_messages = false);
     void reslice_SLA_until_step(SLAPrintObjectStep step, const ModelObject &object, bool postpone_error_messages = false);
