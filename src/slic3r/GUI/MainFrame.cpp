@@ -1094,6 +1094,21 @@ void MainFrame::init_tabpanel() {
         }
         if (panel == m_plater) {
             if (sel == tp3DEditor) {
+                // ORCA_BELT: when returning to Prepare from Preview, strip the
+                // belt-support volumes that belt_supports_inject_volumes() added
+                // during the previous slice. Deferred via CallAfter to run on the
+                // next event loop tick, so it does NOT race with load_files(),
+                // which itself can fire this event during 3MF parsing — running
+                // strip + reload_scene synchronously there triggered a SIGSEGV
+                // in libgtk + JavaScriptCore (gtk_widget_set_sensitive while
+                // GTK was mid-page-transition). Next slice strip-and-re-injects
+                // anyway, so no functional regression.
+                if (e.GetOldSelection() == (int)tpPreview) {
+                    Plater* plater = m_plater;
+                    CallAfter([plater]() {
+                        if (plater) plater->belt_clear_injected_support_volumes();
+                    });
+                }
                 wxPostEvent(m_plater, SimpleEvent(EVT_GLVIEWTOOLBAR_3D));
                 m_param_panel->OnActivate();
             }
@@ -3678,17 +3693,6 @@ void MainFrame::select_tab(size_t tab/* = size_t(-1)*/)
         //BBS GUI refactor: remove unused layout new/dlg
         //size_t new_selection = tab == (size_t)(-1) ? m_last_selected_tab : (m_layout == ESettingsLayout::Dlg && tab != 0) ? tab - 1 : tab;
         size_t new_selection = tab == (size_t)(-1) ? m_last_selected_tab : tab;
-
-        // ORCA_BELT: returning to Prepare from Preview should hide the support
-        // volumes auto-injected by belt_supports_inject_volumes() during the
-        // previous slice. The user wants the Prepare canvas to show only their
-        // original mesh; the next slice will strip-and-re-inject anyway, so
-        // there is no functional regression.
-        if (m_plater &&
-            new_selection == (size_t)tp3DEditor &&
-            m_tabpanel->GetSelection() == (int)tpPreview) {
-            m_plater->belt_clear_injected_support_volumes();
-        }
 
         if (m_tabpanel->GetSelection() != (int)new_selection)
             m_tabpanel->SetSelection(new_selection);

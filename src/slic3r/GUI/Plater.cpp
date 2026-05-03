@@ -15448,9 +15448,11 @@ void Plater::belt_clear_injected_support_volumes()
     }
     if (changed) {
         // Refresh the 3D scene so the GLVolumes for the stripped support
-        // volumes are removed from rendering. Without this the user would
-        // still see them until the next manual reload_scene tick.
-        this->update();
+        // volumes are removed from rendering. reload_scene alone is enough;
+        // this->update() additionally rebuilds toolpaths and was observed to
+        // race with load_files()'s GTK page-transition (SIGSEGV in
+        // gtk_widget_set_sensitive + JavaScriptCore). Caller is expected to
+        // CallAfter() us so we run on the next idle tick.
         if (this->get_view3D_canvas3D())
             this->get_view3D_canvas3D()->reload_scene(true, true);
         belt_supports_log("Prepare-tab entry: stripped injected support volumes");
