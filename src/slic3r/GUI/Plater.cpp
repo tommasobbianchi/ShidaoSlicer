@@ -15492,11 +15492,53 @@ static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
         return false;
     }
 
+    // Translate print-preset support_* keys into preprocessor CLI flags.
+    // Without this, Orca's GUI sliders for spacing / support type are no-ops
+    // for belt — the user can move them but the preprocessor always runs
+    // with defaults (filed as belt-rri).
+    //   support_base_pattern_spacing (mm) → --infill DENSITY%   (~30/spacing)
+    //   support_type ∈ {tree*}            → --tree
+    // support_threshold_angle / _top_z_distance / _object_xy_distance do NOT
+    // need a CLI flag: they propagate via the tmp_in 3MF's
+    // Metadata/project_settings.config (the preprocessor's
+    // read_3mf_support_settings reads them directly).
+    wxString extra_args;
+    if (keel_only) {
+        extra_args = " --no-supports";
+    } else {
+        const auto& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        try {
+            double spacing = print_cfg.opt_float("support_base_pattern_spacing");
+            if (spacing > 0.4) {
+                int density = int(std::round(30.0 / spacing));
+                if (density < 5)  density = 5;
+                if (density > 35) density = 35;
+                extra_args += wxString::Format(" --infill %d", density);
+            }
+        } catch (...) {}
+        try {
+            std::string s = print_cfg.opt_serialize("support_type");
+            if (s.find("tree") != std::string::npos) extra_args += " --tree";
+        } catch (...) {}
+        // belt_support_wedge_layers: ORCA_BELT-specific config (PrintConfig.cpp).
+        // Default 10 = 2.83mm solid base. Lower → easier bed detach; 0 disables.
+        try {
+            const auto* w = print_cfg.option<ConfigOptionInt>("belt_support_wedge_layers");
+            if (w) {
+                int n = w->value;
+                if (n < 0)  n = 0;
+                if (n > 50) n = 50;
+                extra_args += wxString::Format(" --wedge-layers %d", n);
+            }
+        } catch (...) {}
+        belt_supports_log(std::string("preprocessor extra args:") + extra_args.ToStdString());
+    }
+
     wxString cmd = wxString::Format("python3 \"%s\" \"%s\" -o \"%s\"%s",
         wxString::FromUTF8(script.string()),
         wxString::FromUTF8(tmp_in.string()),
         wxString::FromUTF8(tmp_out.string()),
-        keel_only ? wxString(" --no-supports") : wxString());
+        extra_args);
     belt_supports_log(std::string("invoking preprocessor (")
                       + (keel_only ? "keel-only" : "full") + ")");
     long rc = wxExecute(cmd, wxEXEC_SYNC | wxEXEC_HIDE_CONSOLE);

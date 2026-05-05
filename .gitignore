@@ -70,3 +70,10 @@ validation/tests/directional/example_output.png
 .dolt/
 *.db
 .beads-credential-key
+
+# Sweep artifacts (large gcode/3MF/PNG outputs — keep only run_sweep.py + queue_print.py + summary)
+validation/sweeps/support_v*/*.gcode
+validation/sweeps/support_v*/*.3mf
+validation/sweeps/support_v*/snaps/
+validation/sweeps/support_v*/variants/
+validation/sweeps/support_v*/result.json

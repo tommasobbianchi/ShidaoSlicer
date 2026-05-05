@@ -10126,11 +10126,25 @@ void GLCanvas3D::_set_warning_notification_if_needed(EWarning warning)
     } else {
         if (wxGetApp().is_editor()) {
             if (current_printer_technology() != ptSLA) {
+                // ORCA_BELT: gcode for belt printers lives in *virtual* space
+                // (Z_gcode = Y_model + Z_model from the 45° forward transform).
+                // The physical machine Z is layer_z = constant per layer, never
+                // exceeding the head clearance. Comparing layers_zs.back() to
+                // printable_height fires unconditionally on any non-trivial
+                // belt model and the 'A G-code path goes beyond the max print
+                // height' / 'plate boundaries' notifications are pure false
+                // positives. Skip both checks for psBelt.
+                bool is_belt = false;
+                if (auto* ps_opt = wxGetApp().preset_bundle->printers
+                        .get_edited_preset().config
+                        .option<ConfigOptionEnum<PrinterStructure>>("printer_structure"))
+                    is_belt = (ps_opt->value == psBelt);
+
                 unsigned int max_z_layer = m_gcode_viewer.get_layers_z_range().back();
                 if (warning == EWarning::ToolHeightOutside) // check if max z_layer height exceed max print height
-                    show = m_gcode_viewer.has_data() && (m_gcode_viewer.get_layers_zs()[max_z_layer] - m_gcode_viewer.get_max_print_height() >= 1e-6);
+                    show = !is_belt && m_gcode_viewer.has_data() && (m_gcode_viewer.get_layers_zs()[max_z_layer] - m_gcode_viewer.get_max_print_height() >= 1e-6);
                 else if (warning == EWarning::ToolpathOutside) { // check if max x,y coords exceed bed area
-                    show = m_gcode_viewer.has_data() && !m_gcode_viewer.is_contained_in_bed() &&
+                    show = !is_belt && m_gcode_viewer.has_data() && !m_gcode_viewer.is_contained_in_bed() &&
                            (m_gcode_viewer.get_max_print_height() -m_gcode_viewer.get_layers_zs()[max_z_layer] >= 1e-6);
                 }
                 else if (warning == EWarning::GCodeConflict)

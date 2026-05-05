@@ -5666,6 +5666,23 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionInt(3));
 
+    // ORCA_BELT extension: number of solid (100% infill) layers at the
+    // base of every belt support pillar. Higher = more bed adhesion +
+    // structural anchoring; lower = easier to detach. 0 disables the
+    // wedge entirely. Read by Plater::belt_supports_inject_volumes and
+    // passed to the preprocessor as --wedge-layers N.
+    def = this->add("belt_support_wedge_layers", coInt);
+    def->label = L("Belt support wedge layers");
+    def->category = L("Support");
+    def->tooltip = L("Belt printers only. Solid (100% infill) layers at the "
+                     "base of each support pillar. Higher = stronger anchoring "
+                     "to belt; lower = easier detach from bed. 0 = no solid "
+                     "wedge.");
+    def->sidetext = L("layers");
+    def->min = 0;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionInt(10));
+
     def = this->add("support_interface_bottom_layers", coInt);
     def->gui_type = ConfigOptionDef::GUIType::i_enum_open;
     def->label = L("Bottom interface layers");

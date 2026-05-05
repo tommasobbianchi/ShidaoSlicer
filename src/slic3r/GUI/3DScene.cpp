@@ -1134,7 +1134,22 @@ bool GLVolumeCollection::check_outside_state(const BuildVolume &build_volume, Mo
 
     GUI::PartPlate* curr_plate = GUI::wxGetApp().plater()->get_partplate_list().get_selected_plate();
     const Pointfs& pp_bed_shape = curr_plate->get_shape();
-    BuildVolume plate_build_volume(pp_bed_shape, build_volume.printable_height(), build_volume.extruder_areas(), build_volume.extruder_heights());
+    // ORCA_BELT: belt printers have unbounded build height by design — the
+    // belt is the long axis and the slicer projects model→virtual at slice
+    // time (Z_virt = Y_model + Z_model). Pass printable_height=0 so
+    // BuildVolume::volume_state_bbox treats Z as +∞ for the GUI containment
+    // check (BuildVolume.cpp:415). Without this, any model long along the
+    // belt direction got flagged 'exceeds the height limit' even though the
+    // physical head clearance constraint applies per-layer, not to the model
+    // bbox. PrintConfig.hpp's psBelt is the canonical signal.
+    double pp_max_z = build_volume.printable_height();
+    if (auto* ps_opt = GUI::wxGetApp().preset_bundle->printers
+            .get_edited_preset().config
+            .option<ConfigOptionEnum<PrinterStructure>>("printer_structure")) {
+        if (ps_opt->value == psBelt)
+            pp_max_z = 0.0;  // 0 = unbounded, see BuildVolume.cpp:415
+    }
+    BuildVolume plate_build_volume(pp_bed_shape, pp_max_z, build_volume.extruder_areas(), build_volume.extruder_heights());
     const std::vector<BoundingBoxf3>& exclude_areas = curr_plate->get_exclude_areas();
 
     std::map<ModelObject*, std::map<int, std::set<int>>> objects_unprintable_filaments;

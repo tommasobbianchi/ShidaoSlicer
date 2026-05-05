@@ -38,8 +38,10 @@ DEFAULT_CONFIG = {
     "threshold_angle": 50.0,   # degrees — min overhang angle needing support
     "xy_gap": 0.35,            # mm — XY clearance between support and model sides
     "z_gap": 0.15,             # mm — Z clearance between support top and model bottom
+    "bottom_z_gap": 0.0,       # mm — extra Z clearance between belt floor and support bottom
+                               # (0 = support sits on belt; >0 lifts it off the bed for easier detach)
     "side_gap": 0.15,          # mm — lateral gap on vertical walls (Y on belt) for easy removal
-    "floor_z": 0.1,            # mm — support floor above Z=0
+    "floor_z": 0.1,            # mm — support floor above Z=0 (default; bottom_z_gap adds on top of this)
     "min_area": 1.0,           # mm² — skip tiny overhang regions
 }
 
@@ -68,9 +70,10 @@ def read_3mf_support_settings(path_3mf):
         return {}
 
     mapping = {
-        "support_threshold_angle":   ("threshold_angle", float),
+        "support_threshold_angle":    ("threshold_angle", float),
         "support_object_xy_distance": ("xy_gap",          float),
-        "support_top_z_distance":    ("z_gap",            float),
+        "support_top_z_distance":     ("z_gap",           float),
+        "support_bottom_z_distance":  ("bottom_z_gap",    float),
     }
 
     found = {}
@@ -98,6 +101,18 @@ def read_3mf_support_settings(path_3mf):
             found["belt_directional"] = True
         elif s in ("0", "false", "no", "off"):
             found["belt_directional"] = False
+
+    # Custom: belt_support_wedge_layers — overrides --wedge-layers CLI default.
+    # When set in 3MF project settings, the preprocessor uses this instead of
+    # args.wedge_layers (CLI). Lets the GUI sidebar tune solid base height.
+    raw = proj.get("belt_support_wedge_layers")
+    if isinstance(raw, list) and raw:
+        raw = raw[0]
+    if raw is not None:
+        try:
+            found["wedge_layers_override"] = int(raw)
+        except (ValueError, TypeError):
+            pass
 
     return found
 
@@ -244,14 +259,49 @@ def _load_mesh_from_3mf_local(path_3mf):
     # applying it here, keel_gap / overhang detection / floor_z would all run
     # in centered-origin space — producing supports the size of the bounding
     # box. We apply R+t and later inverse-transform (R⁻¹, −t) on export.
-    R, t = _parse_item_transform(model_xml)
-    V = V @ R + t
+    R, t_item = _parse_item_transform(model_xml)
+
+    # Plater::export_3mf with SaveStrategy::SplitModel splits the user's
+    # placement across two transforms in tmp_in:
+    #   <item transform="...">           — instance.transformation (placement)
+    #   model_settings.config <matrix>   — m_transformation (mesh-original frame)
+    # The mesh sub-file stores vertices CENTERED around origin. To work in
+    # WORLD coords we must apply BOTH transforms (centered → user-mesh frame
+    # via part-matrix, then → world via item).
+    # BUT for the inverse-translate on export (`_to_local`) we only want to
+    # subtract the ITEM translation — not the part-matrix one — because
+    # dst.volume[0].mesh in Plater is in the user-mesh frame (= world minus
+    # item.translation), and dst.add_volume copies mesh + m_transformation
+    # both. Support local must match dst.volume[0].mesh frame to avoid the
+    # belt-zyt slicer hang.
+    t_part = np.zeros(3)
+    try:
+        with zipfile.ZipFile(path_3mf) as z:
+            if "Metadata/model_settings.config" in z.namelist():
+                ms_xml = z.read("Metadata/model_settings.config").decode()
+                m_pm = re.search(
+                    r'<part\s+id="1"[^>]*>.*?<metadata\s+key="matrix"\s+value="([^"]+)"',
+                    ms_xml, re.DOTALL)
+                if m_pm:
+                    pm_nums = [float(x) for x in m_pm.group(1).split()]
+                    if len(pm_nums) >= 16:
+                        t_part = np.array([pm_nums[3], pm_nums[7], pm_nums[11]])
+    except Exception:
+        pass
+
+    t_total = t_item + t_part
+    V = V @ R + t_total
     notes = []
     if not np.allclose(R, np.eye(3), atol=1e-6):
         notes.append(f"R=\n{R}")
-    if not np.allclose(t, 0, atol=1e-6):
-        notes.append(f"t={t}")
-    rot_note = " (item transform applied: " + "; ".join(notes) + ")" if notes else ""
+    if not np.allclose(t_item, 0, atol=1e-6):
+        notes.append(f"item.t={t_item}")
+    if not np.allclose(t_part, 0, atol=1e-6):
+        notes.append(f"part.t={t_part}")
+    rot_note = " (transforms applied: " + "; ".join(notes) + ")" if notes else ""
+    # Stash the ITEM translation only — the part-matrix translation lives in
+    # the user-mesh frame and is preserved separately by Plater on import.
+    t = t_item
 
     mesh = trimesh.Trimesh(
         vertices=V,
@@ -1789,18 +1839,32 @@ def main():
     # (e.g. centered models with Z_min=-10), floor_z must be Z_min + 0.1
     # so the support column starts at the belt surface, not mid-model.
     z_min_local = float(model_local.bounds[0, 2])
-    auto_floor_z = z_min_local + 0.1
+    # bottom_z_gap (read from 3MF support_bottom_z_distance) lifts the support
+    # floor off the bed. Default 0 = support sits on belt as before. >0 leaves
+    # an air gap between belt and support body for easier detach. The wedge
+    # (solid base) still bridges from the belt up to the support body floor,
+    # so structural anchoring is preserved — only the body↔bed contact area
+    # shrinks (driven by wedge layers count, not bottom_z_gap).
+    bottom_lift = float(config.get("bottom_z_gap", 0.0))
+    auto_floor_z = z_min_local + 0.1 + bottom_lift
     if abs(auto_floor_z - config["floor_z"]) > 0.01:
         print(f"  floor_z adjusted: {config['floor_z']} → {auto_floor_z:.3f} "
-              f"(model Z_min={z_min_local:.3f})")
+              f"(model Z_min={z_min_local:.3f}, bottom_z_gap={bottom_lift:.3f})")
         config["floor_z"] = auto_floor_z
+
+    # Wedge layers: CLI default unless overridden by 3MF custom key.
+    wedge_layers_eff = config.get("wedge_layers_override")
+    if wedge_layers_eff is None:
+        wedge_layers_eff = args.wedge_layers
+    else:
+        print(f"  wedge_layers: {args.wedge_layers} → {wedge_layers_eff}  (from 3MF belt_support_wedge_layers)")
 
     # ── Keel-gap detection ─────────────────────────────────────────────────
     # Compute min(Y+Z)_shifted. If > one virtual layer (0.283mm), the first
     # oblique slicing plane misses the mesh → m_belt_z_base gets set too high
     # → gate R11 FAIL. Fix: inject a keel wedge so layer 1 is non-empty.
     keel_gap_mm = compute_keel_gap(model_local)
-    keel_wedge_height = (args.wedge_layers if args.wedge_layers > 0 else 10) \
+    keel_wedge_height = (wedge_layers_eff if wedge_layers_eff > 0 else 10) \
                         * 0.2 * (2 ** 0.5)
     # Threshold: use a small numerical margin (not the full virtual-layer step).
     # A mesh with min(Y+Z)_shifted=0 is perfectly keel-first (no wedge needed).
@@ -1903,13 +1967,15 @@ def main():
                                     side_gap=config["side_gap"])
 
     # ── Wedge base: solid bottom N layers for belt adhesion ────────────────
+    # Honor 3MF belt_support_wedge_layers override (resolved earlier as
+    # wedge_layers_eff). 0 disables solid base entirely → minimal bed glue.
     support_wedge = None
     support_main = support_local
-    if args.wedge_layers > 0:
+    if wedge_layers_eff > 0:
         # Virtual layer height at 45° = layer_height / cos(45°) = layer_height * √2
         # Default layer_height = 0.2mm → virtual = 0.283mm/layer
-        wedge_height = args.wedge_layers * 0.2 * (2 ** 0.5)
-        print(f"\nWedge base: {args.wedge_layers} layers × 0.283mm = {wedge_height:.2f}mm Z height")
+        wedge_height = wedge_layers_eff * 0.2 * (2 ** 0.5)
+        print(f"\nWedge base: {wedge_layers_eff} layers × 0.283mm = {wedge_height:.2f}mm Z height")
         support_wedge, support_main = split_support_wedge(support_local, wedge_height)
         if support_main is None:
             # Entire support is wedge height — use as wedge, no sparse body

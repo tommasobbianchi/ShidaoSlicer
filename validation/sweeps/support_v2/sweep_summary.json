@@ -1,0 +1,222 @@
+[
+  {
+    "label": "0d20",
+    "ok": true,
+    "elapsed_s": 5.7,
+    "print_time": "28m 24s",
+    "filament_used_mm": 2396.5777557392526,
+    "filament_weight_g": 7.320845199374628,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/0d20.gcode",
+    "gcode_size": 509120,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.15",
+      "support_object_xy_distance": "0.5"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "1d15",
+    "ok": true,
+    "elapsed_s": 5.7,
+    "print_time": "27m 32s",
+    "filament_used_mm": 2292.0327376653377,
+    "filament_weight_g": 7.001490698210586,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/1d15.gcode",
+    "gcode_size": 494089,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "2.0",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.15",
+      "support_object_xy_distance": "0.5"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "2d10",
+    "ok": true,
+    "elapsed_s": 5.7,
+    "print_time": "26m 36s",
+    "filament_used_mm": 2178.6824451973994,
+    "filament_weight_g": 6.6552386550734965,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/2d10.gcode",
+    "gcode_size": 478128,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "3.0",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.15",
+      "support_object_xy_distance": "0.5"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "3d20T25",
+    "ok": true,
+    "elapsed_s": 5.8,
+    "print_time": "28m 23s",
+    "filament_used_mm": 2395.002325508698,
+    "filament_weight_g": 7.3160327200746424,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/3d20T25.gcode",
+    "gcode_size": 509336,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.5"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "4d20T40",
+    "ok": true,
+    "elapsed_s": 5.7,
+    "print_time": "28m 21s",
+    "filament_used_mm": 2392.0296753426214,
+    "filament_weight_g": 7.306952141885336,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/4d20T40.gcode",
+    "gcode_size": 508873,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.40",
+      "support_object_xy_distance": "0.5"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "5d10T25",
+    "ok": true,
+    "elapsed_s": 5.7,
+    "print_time": "26m 35s",
+    "filament_used_mm": 2178.013845247658,
+    "filament_weight_g": 6.653196277470414,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/5d10T25.gcode",
+    "gcode_size": 478294,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "3.0",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.5"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "6d10T40",
+    "ok": true,
+    "elapsed_s": 5.8,
+    "print_time": "26m 34s",
+    "filament_used_mm": 2176.5978850653973,
+    "filament_weight_g": 6.648870932599802,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/6d10T40.gcode",
+    "gcode_size": 478080,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "3.0",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.40",
+      "support_object_xy_distance": "0.5"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "7d20X8",
+    "ok": true,
+    "elapsed_s": 5.8,
+    "print_time": "27m 59s",
+    "filament_used_mm": 2353.588512191283,
+    "filament_weight_g": 7.189525613978652,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/7d20X8.gcode",
+    "gcode_size": 505141,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.15",
+      "support_object_xy_distance": "0.8"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "8d10X8",
+    "ok": true,
+    "elapsed_s": 5.7,
+    "print_time": "26m 19s",
+    "filament_used_mm": 2150.3759883575835,
+    "filament_weight_g": 6.568770695429453,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/8d10X8.gcode",
+    "gcode_size": 479471,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "3.0",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.15",
+      "support_object_xy_distance": "0.8"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "9d20T25X8",
+    "ok": true,
+    "elapsed_s": 5.6,
+    "print_time": "27m 59s",
+    "filament_used_mm": 2352.1170823456796,
+    "filament_weight_g": 7.185030825484682,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/9d20T25X8.gcode",
+    "gcode_size": 509103,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.8"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "Ad15T30X8",
+    "ok": true,
+    "elapsed_s": 5.7,
+    "print_time": "27m 10s",
+    "filament_used_mm": 2254.876972513614,
+    "filament_weight_g": 6.887990685833069,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v2/Ad15T30X8.gcode",
+    "gcode_size": 494891,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "2.0",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.30",
+      "support_object_xy_distance": "0.8"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  }
+]

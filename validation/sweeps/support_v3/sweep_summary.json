@@ -1,0 +1,166 @@
+[
+  {
+    "label": "0base",
+    "ok": true,
+    "elapsed_s": 6.0,
+    "print_time": "28m 21s",
+    "filament_used_mm": 2390.057636422668,
+    "filament_weight_g": 7.300928138856206,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v3/0base.gcode",
+    "gcode_size": 513227,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.5",
+      "belt_support_wedge_layers": "10"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "1w0",
+    "ok": true,
+    "elapsed_s": 5.6,
+    "print_time": "26m 26s",
+    "filament_used_mm": 2257.474986660742,
+    "filament_weight_g": 6.895926860385037,
+    "warning": "The acceleration setting exceeds the printer's maximum acceleration (machine_max_acceleration_extruding).\nOrca will automatically cap the acceleration speed to ensure it doesn't surpass the printer's capabilities.\nYou can adjust the machine_max_acceleration_extruding value in your printer's configuration to get higher speeds.",
+    "out_gcode": "/home/user/projects/ORCA_BELT/validation/sweeps/support_v3/1w0.gcode",
+    "gcode_size": 497084,
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.8",
+      "belt_support_wedge_layers": "0"
+    },
+    "gate": "WARN",
+    "gate_msg": "  Review before printing."
+  },
+  {
+    "label": "2w3",
+    "ok": false,
+    "reason": "slice_and_stats err: {'content': [{'text': 'ConfigOptionFloatOrPercent: Comparing incompatible types', 'type': 'text'}], 'isError': True}",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.8",
+      "belt_support_wedge_layers": "3"
+    }
+  },
+  {
+    "label": "3w5",
+    "ok": false,
+    "reason": "slice_and_stats err: {'content': [{'text': 'ConfigOptionFloatOrPercent: Comparing incompatible types', 'type': 'text'}], 'isError': True}",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.8",
+      "belt_support_wedge_layers": "5"
+    }
+  },
+  {
+    "label": "4b3",
+    "ok": false,
+    "reason": "slice_and_stats err: {'content': [{'text': 'ConfigOptionFloatOrPercent: Comparing incompatible types', 'type': 'text'}], 'isError': True}",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.8",
+      "support_bottom_z_distance": "0.3",
+      "belt_support_wedge_layers": "3"
+    }
+  },
+  {
+    "label": "5b6",
+    "ok": false,
+    "reason": "Remote end closed connection without response",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "0.8",
+      "support_bottom_z_distance": "0.6",
+      "belt_support_wedge_layers": "3"
+    }
+  },
+  {
+    "label": "6xy12w0",
+    "ok": false,
+    "reason": "[Errno 104] Connection reset by peer",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "1.2",
+      "belt_support_wedge_layers": "0"
+    }
+  },
+  {
+    "label": "7xy12w3",
+    "ok": false,
+    "reason": "[Errno 104] Connection reset by peer",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "1.2",
+      "belt_support_wedge_layers": "3"
+    }
+  },
+  {
+    "label": "8easyL",
+    "ok": false,
+    "reason": "[Errno 104] Connection reset by peer",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "1.0",
+      "support_bottom_z_distance": "0.3",
+      "belt_support_wedge_layers": "3"
+    }
+  },
+  {
+    "label": "9easyM",
+    "ok": false,
+    "reason": "[Errno 104] Connection reset by peer",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "1.2",
+      "support_bottom_z_distance": "0.3",
+      "belt_support_wedge_layers": "0"
+    }
+  },
+  {
+    "label": "AeasyH",
+    "ok": false,
+    "reason": "[Errno 104] Connection reset by peer",
+    "settings": {
+      "support_type": "normal(auto)",
+      "support_base_pattern_spacing": "1.5",
+      "support_threshold_angle": "30",
+      "support_top_z_distance": "0.25",
+      "support_object_xy_distance": "1.2",
+      "support_bottom_z_distance": "0.6",
+      "belt_support_wedge_layers": "0"
+    }
+  }
+]

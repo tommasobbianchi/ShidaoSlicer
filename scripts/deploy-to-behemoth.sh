@@ -9,14 +9,15 @@
 # Architecture:
 #   nativedev (<DEV_HOST>) — build server, git repo lives here
 #   behemoth  (<WORKSTATION_HOST>)  — runs binary locally (GPU, display, fast disk)
-#   Binary: build/src/Debug/orca-slicer (Release has linker error → 0 bytes)
+#   Binary: build/src/Release/orca-slicer (Release works since 2026-04-22; ~135 MB,
+#           ~30-50 s rsync vs 8 min for the 1.97 GB Debug)
 
 set -e
 
 BEHEMOTH="<WORKSTATION_HOST>"
 REMOTE_DIR="/home/user/orca-belt-local"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BINARY="$REPO_ROOT/build/src/Debug/orca-slicer"
+BINARY="$REPO_ROOT/build/src/Release/orca-slicer"
 RESOURCES="$REPO_ROOT/resources"
 
 SYNC_BINARY=1
