@@ -74,6 +74,15 @@ def read_3mf_support_settings(path_3mf):
         "support_object_xy_distance": ("xy_gap",          float),
         "support_top_z_distance":     ("z_gap",           float),
         "support_bottom_z_distance":  ("bottom_z_gap",    float),
+        # belt-wuq: extra Orca support keys propagated via 3MF without
+        # requiring C++ wxExecute changes. base_pattern_spacing is mapped
+        # to infill density via the same 30/spacing formula Plater.cpp
+        # uses for the GUI auto-inject path (Plater.cpp:15511). base_pattern
+        # is emitted verbatim as sparse_infill_pattern on the support volume.
+        # interface_top_layers is documented but unsupported — the
+        # preprocessor has no interface-layer concept (single sparse body).
+        "support_base_pattern_spacing": ("base_pattern_spacing", float),
+        "support_base_pattern":         ("base_pattern",         str),
     }
 
     found = {}
@@ -1215,7 +1224,8 @@ def _mesh_to_xml_body(mesh, object_id):
 
 
 def export_3mf_two_volumes(source_3mf, support_local, output_path,
-                           infill_density="25%", support_wedge_local=None):
+                           infill_density="25%", support_wedge_local=None,
+                           infill_pattern="rectilinear"):
     """
     Embed support into source_3mf and patch print settings for belt safety.
 
@@ -1427,6 +1437,14 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
     # more cleanly from the model underside. Gyroid is FORBIDDEN here: it
     # touches the prior layer at only two sinusoid nodes per period, which
     # delaminates mid-print on belt geometry — HW failure 2026-04-23.
+    # belt-wuq: pattern is now configurable via the 3MF's support_base_pattern
+    # (read by read_3mf_support_settings). Gyroid still trapped here regardless
+    # of preset value — silent fallback to rectilinear with a console warning.
+    pat = str(infill_pattern or "rectilinear").strip().lower()
+    if pat == "gyroid":
+        print("  Warning: support_base_pattern=gyroid is unsafe on belt "
+              "(delaminates mid-print, HW failure 2026-04-23) — using rectilinear.")
+        pat = "rectilinear"
     support_part_xml = (
         f'    <part id="{SUPPORT_OBJ_ID}" subtype="normal_part">\n'
         f'      <metadata key="name" value="support"/>\n'
@@ -1435,7 +1453,7 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
         f'      <metadata key="top_shell_layers" value="0"/>\n'
         f'      <metadata key="bottom_shell_layers" value="0"/>\n'
         f'      <metadata key="sparse_infill_density" value="{inf_str}"/>\n'
-        f'      <metadata key="sparse_infill_pattern" value="rectilinear"/>\n'
+        f'      <metadata key="sparse_infill_pattern" value="{pat}"/>\n'
         f'      <metadata key="enable_support" value="0"/>\n'
         f'      <mesh_stat edges_fixed="0" degenerate_facets="0" '
         f'facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n'
@@ -2036,6 +2054,17 @@ def main():
         support_to_export = support_main
         wedge_to_export = support_wedge
 
+    # belt-wuq: map support_base_pattern_spacing → infill density when the
+    # CLI flag is at its default and the 3MF preset carries the spacing key.
+    # Same 30/spacing formula Plater.cpp:15511 uses for the GUI auto-inject.
+    effective_infill = args.infill
+    bps = config.get("base_pattern_spacing")
+    if bps and bps > 0.4 and args.infill == parser.get_default("infill"):
+        density = max(5, min(35, int(round(30.0 / bps))))
+        effective_infill = f"{density}%"
+        print(f"  infill: {args.infill} → {effective_infill}  "
+              f"(from 3MF support_base_pattern_spacing={bps}mm)")
+
     # Inverse-rotate generated meshes back to 3MF local coords. The item
     # transform in the output 3MF still has the rotation (copied unchanged
     # from source_3mf) and will re-rotate these sub-objects at load time.
@@ -2043,8 +2072,9 @@ def main():
         source_3mf=str(model_path),
         support_local=_to_local(support_to_export),
         output_path=args.output,
-        infill_density=args.infill,
+        infill_density=effective_infill,
         support_wedge_local=_to_local(wedge_to_export),
+        infill_pattern=config.get("base_pattern", "rectilinear"),
     )
 
     print("\nDone.")
