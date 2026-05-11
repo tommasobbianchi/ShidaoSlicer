@@ -81,6 +81,54 @@ echo "  Fixtures:  ${#FIXTURES[@]}"
 echo "  Workdir:   $WORKDIR"
 echo "═══════════════════════════════════════════════════════════════"
 
+# ── Step 0: static-source guards (belt-yn2 anti-regression) ─────────────
+# False 'exceeds Z' / 'over the boundary' warnings on long-Y belt models
+# are silenced by two psBelt short-circuits. If either is removed by a
+# future commit, every long-Y model will redraw red and re-erode user
+# trust (see bd memory belt-feature-work-must-not-regress…).
+SCENE_F="$PROJECT_DIR/src/slic3r/GUI/3DScene.cpp"
+CANVAS_F="$PROJECT_DIR/src/slic3r/GUI/GLCanvas3D.cpp"
+echo ""
+echo "─── Step 0: static guards ─────────────────────────────────────"
+S0_FAIL=0
+# 3DScene.cpp: check_outside_state must zero pp_max_z when psBelt.
+# Note: single awk pass — awk|grep with `set -o pipefail` SIGPIPEs and trips.
+if awk '
+    /GLVolumeCollection::check_outside_state\(/ {in_fn=1}
+    in_fn && /psBelt/ && !/^[[:space:]]*\/\//    {f1=1}
+    in_fn && /pp_max_z[[:space:]]*=[[:space:]]*0/ && !/^[[:space:]]*\/\// {f2=1}
+    in_fn && /^\}/                                {in_fn=0}
+    END { exit (f1 && f2) ? 0 : 1 }
+' "$SCENE_F" 2>/dev/null; then
+    echo "    ✓ 3DScene.cpp check_outside_state has psBelt unbounded-Z guard"
+    TOTAL_PASS=$((TOTAL_PASS + 1))
+else
+    echo "    ✗ 3DScene.cpp check_outside_state psBelt guard MISSING — belt-yn2 regression"
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
+    S0_FAIL=1
+fi
+# GLCanvas3D.cpp: ToolHeightOutside/ToolpathOutside notifications must
+# short-circuit on psBelt (gcode lives in virtual space).
+if awk '
+    /EWarning::ToolHeightOutside/                {in_block=1}
+    in_block && /is_belt/                        {hit=1}
+    in_block && /EWarning::ToolpathOutside/      {in_block=0}
+    END { exit hit ? 0 : 1 }
+' "$CANVAS_F" 2>/dev/null; then
+    echo "    ✓ GLCanvas3D.cpp ToolHeightOutside/ToolpathOutside has psBelt short-circuit"
+    TOTAL_PASS=$((TOTAL_PASS + 1))
+else
+    echo "    ✗ GLCanvas3D.cpp ToolHeightOutside/ToolpathOutside is_belt guard MISSING — belt-yn2 regression"
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
+    S0_FAIL=1
+fi
+if [ $S0_FAIL -ne 0 ]; then
+    echo ""
+    echo "  Step 0 FAIL — aborting before slice (would print red banners on long-Y models)."
+    echo "═══════════════════════════════════════════════════════════════"
+    exit 1
+fi
+
 # Per-fixture pipeline
 for FIXTURE in "${FIXTURES[@]}"; do
     NAME=$(basename "$FIXTURE" .3mf)
