@@ -1998,6 +1998,33 @@ def main():
             except Exception as e:
                 print(f"  Warning: wedge concatenation failed ({e}) — keeping support wedge only")
 
+    # ── belt-9dz: anchor wedge to belt by extending down to model z_min ──
+    # The wedge inherits floor_z = z_min_local + 0.1 + bottom_z_gap from the
+    # support_local frame. When support_bottom_z_distance > 0 in the 3MF
+    # preset (default 0.2mm in Orca), the wedge sits +0.3mm above model
+    # z_min in local coords → +0.3mm above the belt in world coords. The
+    # body↔bed gap is intentional (detach margin), but the wedge IS the
+    # anchor and must touch the belt — that's its design role. Extend the
+    # wedge bottom down to model z_min with a thin matching-XY box.
+    if support_wedge is not None:
+        sw_zmin = float(support_wedge.bounds[0, 2])
+        gap_to_belt = sw_zmin - z_min_local
+        if gap_to_belt > 0.01:
+            dx = float(support_wedge.bounds[1, 0] - support_wedge.bounds[0, 0])
+            dy = float(support_wedge.bounds[1, 1] - support_wedge.bounds[0, 1])
+            cx = (support_wedge.bounds[0, 0] + support_wedge.bounds[1, 0]) / 2
+            cy = (support_wedge.bounds[0, 1] + support_wedge.bounds[1, 1]) / 2
+            cz = (z_min_local + sw_zmin) / 2
+            ext = trimesh.creation.box(
+                extents=[dx, dy, gap_to_belt + 0.01],
+                transform=trimesh.transformations.translation_matrix([cx, cy, cz]))
+            try:
+                support_wedge = trimesh.util.concatenate([support_wedge, ext])
+                print(f"\nWedge anchored to belt: extended {gap_to_belt:.3f}mm down "
+                      f"(z_min: {sw_zmin:.3f} → {z_min_local:.3f}).")
+            except Exception as e:
+                print(f"  Warning: wedge belt-anchor extension failed ({e})")
+
     # If wedge split consumed entire support, pass empty trimesh as support_local
     # (OrcaSlicer needs at least the wedge to be present)
     if support_main is None:
