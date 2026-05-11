@@ -64,62 +64,21 @@ BEHEMOTH_SESSION_ENV = (
 
 
 # ── Profile inheritance resolver ─────────────────────────────────────────────
+# Canonical impl lives in validation/orca_profile_flatten.py. Re-exported
+# here so existing call sites (and external scripts importing these names)
+# keep working. Use the standalone module for new code.
 
-def _resolve_profile(name: str, search_dir: Path) -> Path | None:
-    """Find a profile JSON by name or setting_id."""
-    for p in search_dir.rglob("*.json"):
-        try:
-            d = json.loads(p.read_text())
-            if d.get("name") == name or d.get("setting_id") == name:
-                return p
-        except Exception:
-            pass
-    return None
-
-
-def _merge_profile(path: Path, search_dir: Path, _seen: set = None) -> dict:
-    """
-    Recursively merge a profile JSON with its `inherits` parent.
-    Child values override parent values (child wins).
-    """
-    if _seen is None:
-        _seen = set()
-    if path in _seen:
-        return {}
-    _seen.add(path)
-
-    try:
-        d = json.loads(path.read_text())
-    except Exception:
-        return {}
-
-    parent_name = d.get("inherits")
-    if not parent_name:
-        return dict(d)
-
-    parent_path = _resolve_profile(parent_name, search_dir)
-    if parent_path is None:
-        return dict(d)
-
-    merged = _merge_profile(parent_path, search_dir, _seen)
-    merged.update(d)   # child overrides parent
-    return merged
+from orca_profile_flatten import (  # noqa: E402
+    _resolve_profile,
+    _merge_profile,
+    flatten_profile,
+)
 
 
 def _flat_machine_json(machine_json: Path) -> Path:
-    """
-    Return a path to a temporary flat machine JSON that has all inherited
-    settings inlined — required because the OrcaSlicer CLI does NOT follow
-    the `inherits` chain when loading profiles via --load-settings.
-    """
-    search_dir = machine_json.parent.parent   # resources/profiles/IdeaFormer
-    merged = _merge_profile(machine_json, search_dir)
-    # Strip inherits/meta keys that confuse the CLI
-    for key in ("inherits",):
-        merged.pop(key, None)
-    tmp = Path(tempfile.mktemp(suffix=".json", prefix="belt_machine_merged_"))
-    tmp.write_text(json.dumps(merged, indent=2))
-    return tmp
+    """Thin wrapper kept for backwards compatibility. New code should call
+    orca_profile_flatten.flatten_profile() directly."""
+    return flatten_profile(machine_json)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
