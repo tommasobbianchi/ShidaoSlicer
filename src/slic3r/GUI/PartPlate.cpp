@@ -2416,7 +2416,13 @@ bool PartPlate::check_outside(int obj_id, int instance_id, BoundingBoxf3* boundi
 		// Orca: For sinking object, we use a more expensive algorithm so part below build plate won't be considered
 		if (plate_box.intersects(instance_box)) {
 			// TODO: FIXME: this does not take exclusion area into account
-            const BuildVolume build_volume(get_shape(), m_plater->build_volume().printable_height(), m_extruder_areas, m_extruder_heights);
+			// ORCA_BELT: m_plater is null in CLI headless (--slice). Falling
+			// back to the PartPlate's own plate-box height keeps multi-instance
+			// 3MFs from SIGSEGVing in load_from_3mf_structure → add_instance →
+			// check_outside on the second instance (belt-04q).
+			const double printable_h = m_plater ? m_plater->build_volume().printable_height()
+			                                    : get_plate_box().size().z();
+			const BuildVolume build_volume(get_shape(), printable_h, m_extruder_areas, m_extruder_heights);
 			const auto state = instance->calc_print_volume_state(build_volume);
 			outside = state == ModelInstancePVS_Partly_Outside;
 		}
