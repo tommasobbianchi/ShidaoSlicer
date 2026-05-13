@@ -15349,6 +15349,13 @@ static void belt_strip_injected_support_volumes(ModelObject* obj)
 
 // Returns: 0 = skip preprocess, 1 = preprocess (full), 2 = preprocess (keel-only)
 //
+// Multi-object plates: the gate now fires if at least one ModelObject on the
+// plate qualifies. Previously a whole plate was skipped when objects.size != 1
+// (so multi-object models like Dragon Magnet fell back to Orca's native
+// generator, which produces virtual-space supports incompatible with belt
+// pipeline → R7+R11 fail). The Python preprocessor iterates over all
+// composite objects in the exported 3MF and injects supports per-object.
+//
 // Reads the GUI's Enable-Supports state from the active print preset only.
 // Reading per-object enable_support here would deadlock the toggle: the
 // inject_volumes step intentionally sets per-object enable_support=false to
@@ -15357,10 +15364,10 @@ static void belt_strip_injected_support_volumes(ModelObject* obj)
 // regardless of the GUI checkbox. The print-preset value IS what the
 // checkbox writes; that's the source of truth we want here.
 //
-// Volume gating uses count-of-real-volumes (= total minus volumes named
-// "support"/"support_wedge"), so a model that already has injected volumes
-// from a previous slice is treated as a single real volume and the gate
-// proceeds. inject_volumes strips stale injection before re-exporting tmp_in.
+// Per-object volume gating uses count-of-real-volumes (= total minus volumes
+// named "support"/"support_wedge"), so an object that already has injected
+// volumes from a previous slice is treated as a single real volume.
+// inject_volumes strips stale injection from all objects before re-exporting.
 static int belt_supports_preprocess_mode(Plater& plater)
 {
     const auto& printer_cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
@@ -15371,40 +15378,53 @@ static int belt_supports_preprocess_mode(Plater& plater)
     }
 
     const auto& objs = plater.model().objects;
-    if (objs.size() != 1)           { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: objs.size=" << objs.size(); return 0; }
-    if (!objs[0])                   return 0;
-    if (objs[0]->instances.empty()) { BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no instances"; return 0; }
-
-    const size_t real_vols = belt_count_real_volumes(objs[0]);
-    if (real_vols != 1) {
-        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: real_volumes=" << real_vols
-                                   << " (multi-volume / modifier model not supported)";
+    if (objs.empty()) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no objects";
         return 0;
     }
 
-    // (a) User-facing enable_support — print preset only (see comment above).
     const auto& print_cfg = wxGetApp().preset_bundle->prints.get_edited_preset().config;
     const bool wants_supports = print_cfg.opt_bool("enable_support");
-
-    // (b) Keel-gap detection — instance-transformed world bbox. Centered-origin
-    // STLs (Z_min = -H/2) get the auto keel-align shift before this point;
-    // anything still suspended (Z_world_min < -EPS) needs the wedge injection.
-    const BoundingBoxf3 world_bbox = objs[0]->instance_bounding_box(0, false);
     const double keel_z_threshold_mm = -0.05;
-    const bool needs_keel_wedge = world_bbox.min.z() < keel_z_threshold_mm;
 
-    if (!wants_supports && !needs_keel_wedge) {
-        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: enable_support=0 and flat-base world (Z_min=" << world_bbox.min.z() << ")";
+    int  best_mode             = 0;
+    bool any_eligible          = false;
+    bool any_skipped_multi_vol = false;
+
+    for (size_t i = 0; i < objs.size(); ++i) {
+        if (!objs[i] || objs[i]->instances.empty()) continue;
+
+        const size_t real_vols = belt_count_real_volumes(objs[i]);
+        if (real_vols != 1) {
+            any_skipped_multi_vol = true;
+            BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] obj=" << i
+                                       << " not eligible: real_volumes=" << real_vols
+                                       << " (multi-volume / modifier object — skipped by preprocessor)";
+            continue;
+        }
+
+        const BoundingBoxf3 world_bbox = objs[i]->instance_bounding_box(0, false);
+        const bool needs_keel_wedge = world_bbox.min.z() < keel_z_threshold_mm;
+
+        if (!wants_supports && !needs_keel_wedge) continue;
+
+        any_eligible = true;
+        if (wants_supports) { best_mode = 1; break; }
+        if (needs_keel_wedge) best_mode = std::max(best_mode, 2);
+    }
+
+    if (!any_eligible) {
+        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no eligible objects"
+                                   << " (n_objs=" << objs.size()
+                                   << ", any_multi_vol=" << any_skipped_multi_vol
+                                   << ", wants_supports=" << wants_supports << ")";
         return 0;
     }
 
-    if (wants_supports) {
-        BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] PROCEED full: enable_support=1, world Z_min=" << world_bbox.min.z();
-        return 1;
-    }
-
-    BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] PROCEED keel-only: enable_support=0 but keel gap (Z_min=" << world_bbox.min.z() << ")";
-    return 2;
+    BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] PROCEED mode=" << best_mode
+                               << " (n_objs=" << objs.size()
+                               << ", wants_supports=" << wants_supports << ")";
+    return best_mode;
 }
 
 static boost::filesystem::path belt_supports_find_script()
@@ -15471,16 +15491,21 @@ static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
         return false;
     }
 
-    // Strip any stale injected volumes from a previous slice so the
-    // preprocessor sees the bare model. Without this, every reslice would
-    // accumulate support/wedge geometry and the toggle off-then-on cycle
-    // would never converge to a clean state.
-    if (!plater.model().objects.empty()) {
-        ModelObject* obj0 = plater.model().objects[0];
-        if (belt_has_injected_support_volumes(obj0)) {
-            belt_supports_log("stripping stale injected volumes before re-preprocess");
-            belt_strip_injected_support_volumes(obj0);
+    // Strip any stale injected volumes from EVERY object so the preprocessor
+    // sees bare models. Multi-object plates need this on every object, not
+    // just obj[0]. Without this, every reslice would accumulate support/wedge
+    // geometry and the toggle off-then-on cycle would never converge.
+    {
+        size_t stripped_objs = 0;
+        for (ModelObject* obj : plater.model().objects) {
+            if (obj && belt_has_injected_support_volumes(obj)) {
+                belt_strip_injected_support_volumes(obj);
+                ++stripped_objs;
+            }
         }
+        if (stripped_objs)
+            belt_supports_log("stripped stale injected volumes from "
+                              + std::to_string(stripped_objs) + " object(s)");
     }
 
     auto ts = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -15570,27 +15595,57 @@ static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
     }
     if (!keep_tmp) fs::remove(tmp_out, ec);
 
-    ModelObject* dst = plater.model().objects[0];
+    // Always disable per-object enable_support on every plate object to
+    // prevent Orca's native tree-support generator from running on belt
+    // printers — its output produces virtual-space columns that fail gate R7
+    // (see memory #669). This is set regardless of whether the script
+    // produced extra volumes for that object.
+    for (ModelObject* dst : plater.model().objects) {
+        if (dst) dst->config.set_key_value("enable_support", new ConfigOptionBool(false));
+    }
 
-    // Always disable per-object enable_support to prevent Orca's native
-    // tree-support generator from running on belt printers — its output
-    // produces virtual-space columns that fail gate R7 (see memory #669).
-    // This is set regardless of whether the script produced extra volumes.
-    dst->config.set_key_value("enable_support", new ConfigOptionBool(false));
-
-    if (supported.objects.empty() || supported.objects[0]->volumes.size() < 2) {
-        belt_supports_log("no extra volumes injected; native support disabled");
+    if (supported.objects.empty()) {
+        belt_supports_log("no objects in preprocessor output; native support disabled on all objects");
         return true;
     }
 
-    ModelObject* src = supported.objects[0];
-    size_t before = dst->volumes.size();
-    for (size_t i = 1; i < src->volumes.size(); ++i)
-        dst->add_volume(*src->volumes[i]);
-    dst->invalidate_bounding_box();
+    // Multi-object match: pair each object from the preprocessor output with
+    // the corresponding plate object. Try name first (stable across reload),
+    // fall back to index. The preprocessor preserves both: order in 3dmodel.model
+    // and the <metadata key="name"> value in model_settings.config.
+    auto match_dst = [&plater](const ModelObject* src, size_t fallback_idx) -> ModelObject* {
+        if (!src) return nullptr;
+        const std::string& name = src->name;
+        if (!name.empty()) {
+            for (ModelObject* dst : plater.model().objects)
+                if (dst && dst->name == name) return dst;
+        }
+        if (fallback_idx < plater.model().objects.size())
+            return plater.model().objects[fallback_idx];
+        return nullptr;
+    };
 
-    belt_supports_log("injected " + std::to_string(dst->volumes.size() - before)
-                      + " volumes (total=" + std::to_string(dst->volumes.size()) + ")");
+    size_t total_injected = 0;
+    size_t matched_objs   = 0;
+    for (size_t si = 0; si < supported.objects.size(); ++si) {
+        ModelObject* src = supported.objects[si];
+        if (!src || src->volumes.size() < 2) continue;        // no extras to inject
+        ModelObject* dst = match_dst(src, si);
+        if (!dst) {
+            belt_supports_log("WARN: no plate object matches preprocessor output '"
+                              + src->name + "' (idx=" + std::to_string(si) + ")");
+            continue;
+        }
+        size_t before = dst->volumes.size();
+        for (size_t vi = 1; vi < src->volumes.size(); ++vi)
+            dst->add_volume(*src->volumes[vi]);
+        dst->invalidate_bounding_box();
+        total_injected += dst->volumes.size() - before;
+        ++matched_objs;
+    }
+
+    belt_supports_log("injected " + std::to_string(total_injected)
+                      + " volumes across " + std::to_string(matched_objs) + " object(s)");
     return true;
 }
 
