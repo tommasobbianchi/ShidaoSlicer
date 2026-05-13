@@ -1,213 +1,186 @@
 <div align="center">
 
 <picture>
-  <img alt="OrcaSlicer logo" src="resources/images/OrcaSlicer.png" width="15%" height="15%">
+  <img alt="ShidaoSlicer icon" src="resources/images/ShidaoSlicer_256px.png" width="20%" height="20%">
 </picture>
 
-<a href="https://trendshift.io/repositories/952" target="_blank"><img src="https://trendshift.io/api/badge/repositories/952" alt="SoftFever%2FOrcaSlicer | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+# ShidaoSlicer (试刀)
 
-[![GitHub Repo stars](https://img.shields.io/github/stars/OrcaSlicer/OrcaSlicer)](https://github.com/OrcaSlicer/OrcaSlicer/stargazers) [![Build all](https://github.com/OrcaSlicer/OrcaSlicer/actions/workflows/build_all.yml/badge.svg?branch=main)](https://github.com/OrcaSlicer/OrcaSlicer/actions/workflows/build_all.yml)
+**An unofficial belt-printer fork of [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer)**
 
-OrcaSlicer: an open source Next-Gen Slicing Software for Precision 3D Prints.  
-Optimize your prints with ultra-fast slicing, intelligent support generation, and seamless printer compatibility—engineered for perfection.
-<h3>
+*试刀 — "trying the blade"*
 
-# Official links and community
-
-#### Official Website:
-<a href="https://www.orcaslicer.com/" style="font-size:2em;">OrcaSlicer.com</a>
-
-#### Github Repository:
-<a href="https://github.com/OrcaSlicer/OrcaSlicer"><img src="https://img.shields.io/badge/OrcaSlicer-181717?style=flat&logo=github&logoColor=white" width="200" alt="GitHub Logo"/> </a>
-
-#### Follow us:
-<a href="https://twitter.com/real_OrcaSlicer"><img src="https://img.shields.io/badge/real__OrcaSlicer-000000?style=flat&logo=x&logoColor=white" width="200" alt="X Logo"/> </a>
-
-#### Join our Discord community:
-<a href="https://discord.gg/P4VE9UY9gJ"><img src="https://img.shields.io/badge/-Discord-5865F2?style=flat&logo=discord&logoColor=fff" width="200" alt="discord logo"/> </a>
-
-<table border="2" style="border-color: #ffa500; background-color:rgb(232, 220, 180); color: #856404;">
-<tr>
-<td>
-<strong>⚠️ CAUTION:</strong><br>
-Several clickbait and malicious websites, such as <b>orca-slicer[.]com</b> and <b>orcaslicer[.]net</b>, are pretending to be the official OrcaSlicer site. These sites may redirect you to dangerous downloads or contain misleading information.<br>
-<b>Our only official website is <a href="https://www.orcaslicer.com/">www.orcaslicer.com</a>.</b><br><br>
-If you come across any of these in search results, please <b>report them</b> as unsafe or phishing to help keep the community secure with:<br>
- - <a href="https://safebrowsing.google.com/safebrowsing/report_phish/">Google Safe Browsing</a><br>
- - <a href="https://www.microsoft.com/en-us/wdsi/support/report-unsafe-site">Microsoft Security Intelligence</a><br>
- - <a href="https://ipthreat.net/tools/reportphishing">IPThreat</a>
-</td>
-</tr>
-</table>
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Upstream: OrcaSlicer](https://img.shields.io/badge/upstream-OrcaSlicer-181717?logo=github&logoColor=white)](https://github.com/SoftFever/OrcaSlicer)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#hardware-validated)
 
 </div>
 
-# Main features
+---
 
-- **[Advanced Calibration Tools](https://github.com/OrcaSlicer/OrcaSlicer/wiki/Calibration)**  
-  Comprehensive suite: temperature towers, flow rate, retraction & more for optimal performance.
-- **[Precise Wall](https://github.com/OrcaSlicer/OrcaSlicer/wiki/quality_settings_precision#precise-wall) and [Seam Control](https://github.com/OrcaSlicer/OrcaSlicer/wiki/quality_settings_seam)**  
-  Adjust outer wall spacing and apply scarf seams to enhance print accuracy.
-- **[Sandwich Mode](https://github.com/OrcaSlicer/OrcaSlicer/wiki/quality_settings_wall_and_surfaces#innerouterinner) and [Polyholes](https://github.com/OrcaSlicer/OrcaSlicer/wiki/quality_settings_precision#polyholes) Support**  
-  Use varied infill [patterns](https://github.com/OrcaSlicer/OrcaSlicer/wiki/strength_settings_patterns) and accurate hole shapes for improved clarity.
-- **[Overhang](https://github.com/OrcaSlicer/OrcaSlicer/wiki/quality_settings_overhangs) and [Support Optimization](https://github.com/OrcaSlicer/OrcaSlicer/wiki#support-settings)**  
-  Modify geometry for printable overhangs with precise support placement.
-- **[Granular Controls and Customization](https://github.com/OrcaSlicer/OrcaSlicer/wiki#process-settings)**  
-  Fine-tune print speed, layer height, pressure, and temperature with precision.
-- **Network Printer Support**  
-  Seamless integration with Klipper, PrusaLink, and OctoPrint for remote control.
-- **[Mouse Ear Brims](https://github.com/OrcaSlicer/OrcaSlicer/wiki/others_settings_brim) & [Adaptive Bed Mesh](https://github.com/OrcaSlicer/OrcaSlicer/wiki/printer_basic_information_adaptive_bed_mesh)**  
-  Automatic brims and adaptive mesh calibration ensure consistent adhesion.
-- **User-Friendly Interface**  
-  Intuitive drag-and-drop design with pre-made profiles for popular printers.
-- **[Open-Source](https://github.com/OrcaSlicer/OrcaSlicer) & [Community Driven](https://discord.gg/P4VE9UY9gJ)**  
-  Regular updates fueled by continuous community contributions.
-- **Wide Printer Compatibility**  
-  Supports a broad range of printers: Bambu Lab, Prusa, Creality, Voron, and more.
-- Additional features can be found in the [change notes](https://github.com/OrcaSlicer/OrcaSlicer/releases/).
+## ⚠️ Disclaimer
 
-# Wiki
+**ShidaoSlicer is not affiliated with, endorsed by, or sponsored by OrcaSlicer / SoftFever, BambuStudio / Bambu Lab, or PrusaSlicer / Prusa Research.** It is an independent community fork released under the same license as upstream (AGPL-3.0-or-later).
 
-The [wiki](https://github.com/OrcaSlicer/OrcaSlicer/wiki) aims to provide a detailed explanation of the slicer settings, including how to maximize their use and how to calibrate and set up your printer.
+The project name and logo (samurai testing a blade) reference the classical Chinese practice of bench-testing a freshly forged sword — the workflow mindset here is exactly that: every change to the belt pipeline must pass a slice + safety-gate test before it touches a real machine. The katana / belt motif is original artwork generated for this fork; it is **not** a derivative of the OrcaSlicer orca logo.
 
-- **[Access the wiki here](https://github.com/OrcaSlicer/OrcaSlicer/wiki)**
-- **[Contribute to the wiki](https://github.com/OrcaSlicer/OrcaSlicer/wiki/How-to-wiki)**
+This is **alpha-quality software** targeting a niche of printer (45°-inclined-belt CR-30 / IdeaFormer-IR3 family). Do not use it for production prints without validating each gcode through `validation/belt_gcode_gate.py` first. Driver-killer first-layer faults are an everyday risk on belt printers, and a small math error in the slicer becomes a 200 € TMC2240 in the bin.
 
-# Download
+## What's a belt printer?
 
-## Stable Release
+A belt 3D printer prints onto a **continuous polymer belt** that rolls under the toolhead. The bed is tilted at a fixed angle (almost always 45°) and the third axis is effectively infinite: when the print is taller than the gantry travel, it simply rolls forward.
 
-📥 **[Download the Latest Stable Release](https://github.com/OrcaSlicer/OrcaSlicer/releases/latest)**  
-Visit our GitHub Releases page for the latest stable version of OrcaSlicer, recommended for most users.
+This breaks every assumption in a normal slicer. There is no bed Z bound, no "first layer is layer 0 at Z=0.2 mm", no "Z column above a face supports it". Instead:
 
-## Nightly Builds
+- A model-space point `(X, Y, Z)` is printed at gcode coordinates `(X, √2·Y, Y+Z)`.
+- Layers are **oblique 45°-inclined planes**, not horizontal slabs.
+- The print "scrolls past" the toolhead in `+Y_machine` direction.
 
-🌙 **[Download the Latest Nightly Build](https://github.com/OrcaSlicer/OrcaSlicer/releases/tag/nightly-builds)**  
-Explore the latest developments in OrcaSlicer with our nightly builds. Feedback on these versions is highly appreciated.
+ShidaoSlicer is a fork of OrcaSlicer that bakes this transform into the slicer pipeline, validates the output, and adds the belt-specific UX (preview at 45°, no false "out-of-bed" warnings, a per-belt support generator).
 
-# How to install
+## Hardware validated
 
-## Windows
+| Printer | Status | Notes |
+|---|---|---|
+| **IdeaFormer IR3 V2** | ✅ Routinely used | Klipper, belt α=45°, X=250 mm, std CoreXY kinematics, NO firmware-side belt transform |
+| Creality CR-30 | ❓ Untested but math model is identical | Reports welcome via issues |
+| Other 45° belt printers | ❓ Untested | Reports welcome via issues |
 
-Download the **Windows Installer exe**  for your preferred version from the [releases page](https://github.com/OrcaSlicer/OrcaSlicer/releases).
+Hardware-validated filaments / fixtures: PETG generic 235 °C, PLA eSUN 210 °C; print smoke set `box_10`, `box_20`, `arc_bridge`, `inverted_L`, `Supports_Test_small`, multi-rotation supports.
 
- - *For convenience there is also a portable build available.*
-    <details>
-    <summary>Troubleshooting</summary>
+## License
 
-    - *If you have troubles to run the build, you might need to install following runtimes:*
-    - [MicrosoftEdgeWebView2RuntimeInstallerX64](https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v1.0.10-sf2/MicrosoftEdgeWebView2RuntimeInstallerX64.exe)
-        - [Details of this runtime](https://aka.ms/webview2)
-        - [Alternative Download Link Hosted by Microsoft](https://go.microsoft.com/fwlink/p/?LinkId=2124703)
-    - [vcredist2019_x64](https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v1.0.10-sf2/vcredist2019_x64.exe)
-        -  [Alternative Download Link Hosted by Microsoft](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-        -  This file may already be available on your computer if you've installed visual studio.  Check the following location: `%VCINSTALLDIR%Redist\MSVC\v142`
-    </details>
+**AGPL-3.0-or-later**, inherited from upstream OrcaSlicer. All belt-specific modifications in this fork are released under the same license. See [LICENSE](LICENSE).
 
-Windows Package Manager
+## What's different from upstream OrcaSlicer
 
-```shell
-winget install --id=SoftFever.OrcaSlicer -e
+### 1. Belt mathematical model (C++ core)
+
+Files: `src/libslic3r/GCode.cpp`, `src/libslic3r/GCodeWriter.cpp`, `src/libslic3r/PrintObject.cpp`, `src/libslic3r/PrintObjectSlice.cpp`, `src/libslic3r/PrintApply.cpp`, `src/libslic3r/BeltTransform.{h,cpp}`.
+
+- **Forward transform** (model → virtual): `[Y_virt = Z_model;  Z_virt = Y_model + Z_model]` — i.e. `[[0,1],[1,1]]`.
+- **Inclined-Z**: `Z_post = Z_virt + Y_virt · tan(α)` with α = 45°.
+- **Inverse transform** (virtual → machine): `[[√2,0],[-1,1]]`, so `Y_mach = √2·Z_model` and `Z_mach = Y_model + Z_model`.
+- **Layer height scaled by `1/cos(α)`**, so a 0.20 mm belt-normal step becomes 0.283 mm in virtual Z. This is what `layer_height` in the preset actually represents on belt.
+- **Y-lift in GCodeWriter**: `z_hop` is reinterpreted as a gantry lift; the emitted gcode adds `hop/√2` to both Y and Z (the only safe way to lift the nozzle off a moving belt).
+- **Keel-first slicing** (`trafo_centered()`): shifts `Y_min = 0` and `Z_min = 0` before the forward transform, so the first slice intersects the model corner that actually touches the belt first ("the keel").
+
+The model is invariant and hardware-validated. **Do not touch the transform core** — every consumer (gcode viewer, gate, analyzers) is expected to adapt to the gcode it produces. See `docs/architecture/BELT_IMPLEMENTATION_DESIGN_DOC.md` for the formal derivation.
+
+### 2. Belt slicer fixes
+
+| Fix | Where | What it solves |
+|---|---|---|
+| **45° cut bug** | `PrintApply.cpp` (a9c1c6b5b3) | Multi-volume objects silently lost top layers because the slicing bbox was tested in world coords while the layer index lives in virtual coords. Fixed by passing `trafo_centered()`. |
+| **Top-shell at 45°** | `PrintObject*` | Upstream samples `top_shell_layers` along Z; on belt this walks along Y instead of into the model. Raises the count to `ceil(model_Y / z_step)` for belt printers. |
+| **Multi-instance keel-guard** | `Plater.cpp` | Original code reset `Y_min → 0` unconditionally on every load, collapsing multi-instance plates on re-open. Now only shifts when `Y_min < 0` (mirrors the pre-existing Z guard). |
+| **CLI null guards** | `PartPlate.cpp`, various | Headless multi-object slicing no longer SIGSEGVs on sparse 3MFs (`config.option<T>()` null-checked, `m_plater` null-guarded in `PartPlate::check_outside`). |
+
+### 3. Belt safety gate
+
+[`validation/belt_gcode_gate.py`](validation/belt_gcode_gate.py) runs **11 R-rules** over a sliced gcode before it ever reaches the printer. The driver-killers:
+
+- **R7** — first-layer Y ≤ 2 mm (a gcode that starts with Y > 2 commands the belt to slam forward at full speed at print start).
+- **R11** — `Z_machine ≥ −0.05 mm` (no command may dive the toolhead through the belt).
+
+There is a **printer-side mirror** of the gate at `~/obp/belt_gcode_gate.py` on the Klipper host that re-checks every uploaded gcode as a second safety net. R7+R11 have caught real-world regressions multiple times; one of them killed a TMC2240 (200 €) before the gate existed.
+
+### 4. Support pipeline
+
+The native OrcaSlicer support generator is unusable on belt — it runs in virtual space and produces support columns whose toolpaths fall *under* the belt surface (R7+R11 fail regardless of parameters).
+
+[`validation/support_preprocess.py`](validation/support_preprocess.py) is a Python pre-slice step that does the belt-correct thing:
+
+1. Detect overhangs in **model space** with gravity `[0, 0, -1]`.
+2. Project Cartesian support columns from each overhang down to the belt surface (Y+Z=0 diagonal).
+3. Build a 2- or 3-volume 3MF (model + support body + optional **keel wedge** that anchors the supports to the belt from layer 1).
+4. Stamp `enable_support = 0` in the 3MF's `Metadata/project_settings.config` so OrcaSlicer's native support generator does **not** also run.
+
+Tunables: `--infill <pct>`, `--threshold-angle`, `--xy-gap`, `--top-z-distance`, `--bottom-z-distance`, `--wedge-layers N`, `--tree`, `--belt-directional` (planned).
+
+Workflow:
+```bash
+python3 validation/support_preprocess.py model.3mf -o model_supported.3mf
+orca-slicer --slice 0 --load-settings belt-preset.json --export-3mf out.3mf model_supported.3mf
+python3 validation/belt_gcode_gate.py out.gcode
 ```
 
-## Mac
+### 5. Belt-aware GUI
 
-1. Download the DMG for your computer: `arm64` version for Apple Silicon and `x86_64` for Intel CPU.
-2. Drag OrcaSlicer.app to Application folder.
-3. *If you want to run a build from a PR, you also need to follow the instructions below:*
+`src/slic3r/GUI/Plater.cpp`, `src/slic3r/GUI/MainFrame.cpp`, `src/slic3r/GUI/PrinterWebView.cpp` (and the new `orcabelt_fluidd_host`):
 
-    <details>
-    <summary>Quarantine</summary>
+- **Print button** stays enabled after belt slicing. Upstream gates on a `printable_height` rectangle check that always fails on belt.
+- **Preview slider** survives belt-specific re-slices: 3 guards in `Plater.cpp` against spurious `APPLY_STATUS_INVALIDATED`.
+- **Preview rendering** at 45° (not collapsed to horizontal layers — Z quantization removed in `GCodeViewer::load_toolpaths`).
+- **Toolpath / mesh alignment** uses a corrected `belt_to_model` inverse (`Z_model = Y_gcode/√2`, `Y_model = Z_gcode − Z_model`).
+- **Ctrl+0 robust on belt** (orbits the loaded volumes, not the empty 2 m-wide belt center).
+- **ImGui assert soften** so the wx ↔ ImGui modifier-key desync doesn't abort Debug builds on every slice.
+- **SIGSEGV signal handler** writes `/tmp/orcabelt_crash_<pid>.log` with a demangled backtrace, GTK/GLib log capture, and recent ImGui state — for offline triage of UI crashes.
 
-    - Option 1 (You only need to do this once. After that the app can be opened normally.):
-      - Step 1: Hold _cmd_ and right click the app, from the context menu choose **Open**.
-      - Step 2: A warning window will pop up, click _Open_
+### 6. Embedded Fluidd / Mainsail in the Device tab
 
-    - Option 2:
-      Execute this command in terminal:
+Out-of-process `orcabelt_fluidd_host` subprocess (GTK + webkit2gtk-4.1) wrapped by a wxPanel overlay tracker. This bypasses the upstream `libjavascriptcoregtk-4.1` SIGSEGV that crashes Orca whenever Fluidd loads in-process on Ubuntu noble (see upstream issues SoftFever/OrcaSlicer#10756 #10804 #12919 #6043 — all open with no PR).
 
-      ```shell
-      xattr -dr com.apple.quarantine /Applications/OrcaSlicer.app
-      ```
+If the subprocess dies within 5 s of spawn, the panel falls back to an **"Open in browser"** button (`xdg-open`). Future-proof: when WebKit on Ubuntu ≥ 2.52 ships, the subprocess will survive and the overlay just shows the embedded Fluidd inline — zero code changes needed.
 
-    - Option 3:
-        - Step 1: open the app, a warning window will pop up  
-            ![mac_cant_open](./SoftFever_doc/mac_cant_open.png)
-        - Step 2: in `System Settings` -> `Privacy & Security`, click `Open Anyway`:  
-            ![mac_security_setting](./SoftFever_doc/mac_security_setting.png)
-    </details>
+### 7. Calibration helpers
 
-## Linux (Ubuntu)
+- [`validation/calib_temp_belt_v5.py`](validation/calib_temp_belt_v5.py) — belt-adapted **temperature tower**. 45° tilt + leading wedge for first-layer adhesion + per-zone M104 events embedded directly in `Metadata/custom_gcode_per_layer.xml`. Single merged-mesh object (workaround for the multi-instance pipeline collapse — see Known Issues).
+- [`validation/orca_profile_flatten.py`](validation/orca_profile_flatten.py) — flattens the `inherits` chain in any preset JSON so the CLI's `--load-settings` actually sees parent fields (`gcode_flavor`, `machine_start_gcode`, etc.). Without this, CLI-sliced gcodes emit Marlin defaults and the first layer fires the extruder cold — driver-risk.
+- [`validation/belt_smoke.sh`](validation/belt_smoke.sh) — pipeline regression harness (12 PASS / 2 WARN / 0 FAIL baseline on `inverted_L` + `Test_Supports` fixtures, ~3 s wall-clock).
+- [`validation/belt_gui_validate.py`](validation/belt_gui_validate.py) — thin wrapper that flattens the preset, slices via the Release binary, and runs the gate.
 
- 1. If you run into trouble executing it, try this command in the terminal:
-    `chmod +x /path_to_appimage/OrcaSlicer_Linux.AppImage`
+### 8. Optional MCP server
 
-# How to Compile
+Compiled in when `cmake -DENABLE_MCP_SERVER=ON`. Adds 25 JSON-RPC tools on `127.0.0.1:13619/mcp` for headless control (`model_load_file`, `model_add_text`, `slice_and_stats`, `screenshot`, `object_transform`, …). Used by the calibration scripts to drive an `xvfb-run`'d Orca for batch slicing / text-mesh generation, and by external agents (Claude-Code, etc.) for round-trip GUI automation.
 
-All updated build instructions for Windows, macOS, and Linux are now available on the official [OrcaSlicer Wiki - How to build](https://github.com/OrcaSlicer/OrcaSlicer/wiki/How-to-build) page.
+## Building
 
-Please refer to the wiki to ensure you're following the latest and most accurate steps for your platform.
+Linux:
 
-# Klipper Note
-
-If you're running Klipper, it's recommended to add the following configuration to your `printer.cfg` file.
-
-```gcode
-# Enable object exclusion
-[exclude_object]
-
-# Enable arcs support
-[gcode_arcs]
-resolution: 0.1
+```bash
+./build_linux.sh -u     # first time: install system deps
+./build_linux.sh -dsi   # build deps + slicer + AppImage
 ```
 
-# Supports
+macOS / Windows: same as upstream OrcaSlicer (`build_release_macos.sh`, `build_release_vs2022.bat`). The belt-specific changes are header-compatible — no extra dependencies beyond what OrcaSlicer already requires.
 
-**OrcaSlicer** is an open-source project and I'm deeply grateful to all my sponsors and backers.  
-Their generous support enables me to purchase filaments and other essential 3D printing materials for the project.  
-Thank you! :)
+Output binary:
+- `build/src/Release/orca-slicer` — Release (~135 MB), fast, **use this for normal slicing**.
+- `build/src/Debug/orca-slicer` — Debug (~2 GB), use for ImGui asserts + verbose logs when chasing crashes.
 
-## Sponsors:
+The binary is still called `orca-slicer` for compatibility with downstream tooling (Moonraker thumbnail extractor, IdeaFormer Klipper macros). The window title and `About` dialog identify themselves as ShidaoSlicer.
 
-<table>
-<tr>
-<td>
-<a href="https://qidi3d.com/" style="display:inline-block; border-radius:8px; background:#fff;">
-  <img src="SoftFever_doc\sponsor_logos\QIDI.png" alt="QIDI" width="100" height="100">
-</a>
-</td>
-<td>
-<a href="https://bigtree-tech.com/" style="display:inline-block; border-radius:8px; background:#222;">
-    <img src="SoftFever_doc\sponsor_logos\BigTreeTech.png" alt="BIGTREE TECH" width="100" height="100">
-</a>
-</td>
-</tr>
-</table>
+## Roadmap
 
-## Backers:
+- Fix the deeper multi-instance belt-slicer collapse (`PrintApply::print_objects_from_model_object` zeroes Y_world per instance, so N copies along the belt render into the same Z_gcode range; current workaround is a single merged-mesh object).
+- **Belt-directional support filter** — skip support columns already in the print-forward shadow of an earlier column (saves a lot of filament on staircase-like geometry).
+- Tree / organic supports adapted for belt — currently axis-aligned box columns only.
+- Y-speed ramp, outer-wall-first, 45° gap-fill, fan ramp.
+- Full **A3 + C1 calibration suite** (gap tuning + interface-layer optimization + PLA temp / pressure-advance / retraction on belt-adapted geometry).
+- CLI `unprintable_area` bypass for merged multi-zone meshes (the GUI path already bypasses `BuildVolume::all_paths_inside`; the CLI path is still pending).
+- Native Windows / macOS binaries (currently Linux-only AppImage).
+- Wave-overhangs integration (research branch, see acknowledgements).
 
-**Ko-fi supporters** ☕: [Backers list](https://github.com/user-attachments/files/16147016/Supporters_638561417699952499.csv)
+## Known issues
 
-## Support me
+- **Multi-instance plate collapse on belt**: `PrintApply::print_objects_from_model_object` zeroes `trafo.data()[13]` (Y_world) per instance, so N copies of a model laid along Y all share the same virtual Z range. **Workaround**: bake into a single merged-mesh object.
+- **WebKit2GTK 4.1 2.50.4 crash**: Ubuntu noble's bundled `libjavascriptcoregtk` SIGSEGVs ~2 s after Fluidd finishes loading. The subprocess host bypasses this; the inline embed will return when WebKit ≥ 2.52 ships (likely Ubuntu 26.04 LTS).
+- **CLI `unprintable area` error code 8** on merged multi-zone meshes — `BuildVolume::all_paths_inside` enforces `printable_height` which belt Z routinely exceeds. The GUI path already bypasses this; the CLI bypass is pending.
 
-<a href="https://github.com/sponsors/SoftFever"><img src="https://img.shields.io/badge/GitHub%20Sponsors-30363D?style=flat&logo=GitHub-Sponsors&logoColor=EA4AAA" height="50"></a>
-<a href="https://ko-fi.com/G2G5IP3CP"><img src="https://img.shields.io/badge/Support_me_on_Ko--fi-FF5E5B?style=flat&logo=ko-fi&logoColor=white" height="50"></a>
-<a href="https://paypal.me/softfever3d"><img src="https://img.shields.io/badge/PayPal-003087?style=flat&logo=paypal&logoColor=fff" height="50"></a>
+## Credits / attribution
 
-## Some background
+Massive credit goes upstream:
 
-OrcaSlicer was originally forked from Bambu Studio, it was previously known as BambuStudio-SoftFever.
+- **OrcaSlicer maintainers** (SoftFever and the OrcaSlicer community) — every line of the Cartesian slicer core, the wxWidgets / ImGui shell, the calibration framework, and the 3MF format support.
+- **BambuStudio / Bambu Lab** — original upstream that OrcaSlicer forked from.
+- **PrusaSlicer / Prusa Research** — the slicing kernel both inherit from.
+- **WaveOverhangs sandbox** (dennisklappe/OrcaSlicer-WaveOverhangs) — research that will inform the planned wave-overhangs integration.
 
-[Bambu Studio](https://github.com/bambulab/BambuStudio) is forked from [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer) by Prusa Research, which is from [Slic3r](https://github.com/Slic3r/Slic3r) by Alessandro Ranellucci and the RepRap community.
-OrcaSlicer incorporates a lot of features from [SuperSlicer](https://github.com/supermerill/SuperSlicer) by @supermerill
-OrcaSlicer's logo is designed by community member Justin Levine (@freejstnalxndr).
+Belt-specific work, math model, validation tooling, calibration helpers, MCP integration, and the icon (original artwork) are by this fork's maintainer.
 
-# License
+## Contributing / bug reports
 
-- **OrcaSlicer** is licensed under the GNU Affero General Public License, version 3. OrcaSlicer is based on Bambu Studio by BambuLab.
-- **Bambu Studio** is licensed under the GNU Affero General Public License, version 3. Bambu Studio is based on PrusaSlicer by PrusaResearch.
-- **PrusaSlicer** is licensed under the GNU Affero General Public License, version 3. PrusaSlicer is owned by Prusa Research. PrusaSlicer is originally based on Slic3r by Alessandro Ranellucci.
-- **Slic3r** is licensed under the GNU Affero General Public License, version 3. Slic3r was created by Alessandro Ranellucci with the help of many other contributors.
-- The **GNU Affero General Public License**, version 3 ensures that if you use any part of this software in any way (even behind a web server), your software must be released under the same license.
-- OrcaSlicer includes a **pressure advance calibration pattern test** adapted from Andrew Ellis' generator, which is licensed under GNU General Public License, version 3. Ellis' generator is itself adapted from a generator developed by Sineos for Marlin, which is licensed under GNU General Public License, version 3.
-- The **Bambu networking plugin** is based on non-free libraries from BambuLab. It is optional to the OrcaSlicer and provides extended functionalities for Bambulab printer users.
+Open an issue or PR against the GitHub repo. Reports of belt printers other than IdeaFormer IR3 V2 are particularly welcome — the math model should generalize to any 45°-inclined-belt machine, but it has only been hardware-validated on one.
+
+For changes touching the C++ belt transform core (`GCode.cpp`, `GCodeWriter.cpp`, `PrintObject*.cpp`, `BeltTransform.*`), please add an entry to `validation/` reproducing the change with a synthetic STL + expected gcode + R-gate decision. Without that, PRs will not be merged — every transform change has a way of breaking something downstream that only shows up on real hardware.

@@ -6805,15 +6805,16 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
 
     // ORCA_BELT: keel-align every loaded instance on belt printers.
     //
-    // World coords: Y=0 is the belt entry (keel). The print algorithm REQUIRES
-    // Y_min=0 so the object's leading edge sits on the keel and adheres. Also
-    // Z_min>=2mm for a safety buffer on the inclined surface (prevents mesh from
-    // sinking below the print plane when centered-origin STLs are imported).
+    // World coords: Y=0 is the belt entry (keel). For freshly-loaded centered
+    // STLs (Y_min<0), we shift Y_min->0 so the object's leading edge sits on
+    // the keel and adheres. Z_min>=2mm safety buffer on the inclined surface.
     //
-    // This runs for every new model_object regardless of whether instances were
-    // pre-existing in a 3MF (benchy.3mf has a baked instance) or freshly added
-    // in AUTOPLACEMENT_ON_LOAD. best_object_pos=(0.5, 0.0) leaves centroid at
-    // Y=0 for centered-origin meshes; we shift Y_min->0 and Z_min->2 here.
+    // GUARD (2026-05-13 belt multi-instance fix): both shifts are gated on
+    // their respective "needs alignment" condition. Without the Y guard, the
+    // shift would forcibly collapse every instance to Y_min=0 on 3MF re-load,
+    // breaking multi-instance plates that the user has arranged at distinct Y
+    // offsets (e.g. temp tower with N clones along the belt). Equivalent guard
+    // already existed for Z; the Y branch was missing it.
     {
         bool is_belt = false;
         if (auto* bundle = wxGetApp().preset_bundle) {
@@ -6830,7 +6831,8 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
                 for (int i = 0; i < (int)mo->instances.size(); ++i) {
                     BoundingBoxf3 wbb = mo->instance_bounding_box(i);
                     Vec3d off = mo->instances[i]->get_offset();
-                    off.y() -= wbb.min.y();                        // Y_min -> 0 (keel)
+                    if (wbb.min.y() < 0)
+                        off.y() -= wbb.min.y();                    // Y_min -> 0 (keel)
                     if (wbb.min.z() < Z_MIN_BUFFER_MM)
                         off.z() += (Z_MIN_BUFFER_MM - wbb.min.z()); // Z_min -> >=2mm
                     mo->instances[i]->set_offset(off);
