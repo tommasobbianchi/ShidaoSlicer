@@ -13,6 +13,7 @@
 
 #include <boost/filesystem/operations.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/log/trivial.hpp>
 
 #if ENABLE_SMOOTH_NORMALS
 #include <igl/per_face_normals.h>
@@ -519,24 +520,45 @@ void GLModel::init_from(const Polygons& polygons, float z)
 
 bool GLModel::init_from_file(const std::string& filename)
 {
-    if (!boost::filesystem::exists(filename))
+    // ShidaoSlicer fix: bypass Model::read_from_file machinery (which calls
+    // ModelObject::add_volume → calculate_convex_hull → qhull, and on some
+    // STL assets qhull aborts the whole process with SIGABRT — uncatchable
+    // via the std::exception path that used to wrap this call). For a
+    // GL-only display mesh we don't need any of that; load the triangles
+    // straight into a TriangleMesh.
+    if (!boost::algorithm::iends_with(filename, ".stl")) {
+        BOOST_LOG_TRIVIAL(warning) << "GLModel::init_from_file: '" << filename << "' is not an .stl — skipping";
         return false;
-
-    if (!boost::algorithm::iends_with(filename, ".stl"))
+    }
+    boost::system::error_code ec;
+    if (!boost::filesystem::is_regular_file(filename, ec)) {
+        BOOST_LOG_TRIVIAL(warning) << "GLModel::init_from_file: '" << filename << "' is not a regular file";
         return false;
+    }
+    if (boost::filesystem::file_size(filename, ec) < 84) {
+        // 80-byte header + 4-byte triangle count = minimum binary STL.
+        BOOST_LOG_TRIVIAL(warning) << "GLModel::init_from_file: '" << filename << "' is smaller than a valid STL header";
+        return false;
+    }
 
-    Model model;
+    TriangleMesh mesh;
+    bool ok = false;
     try {
-        model = Model::read_from_file(filename);
+        ok = mesh.ReadSTLFile(filename.c_str(), /*repair=*/true);
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "GLModel::init_from_file: ReadSTLFile('" << filename << "') threw: " << e.what();
+        return false;
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "GLModel::init_from_file: ReadSTLFile('" << filename << "') threw unknown exception";
+        return false;
     }
-    catch (std::exception&) {
+    if (!ok || mesh.empty() || mesh.its.indices.empty()) {
+        BOOST_LOG_TRIVIAL(warning) << "GLModel::init_from_file: '" << filename << "' loaded empty or invalid mesh";
         return false;
     }
 
-    init_from(model.mesh());
-
+    init_from(mesh);
     m_filename = filename;
-
     return true;
 }
 

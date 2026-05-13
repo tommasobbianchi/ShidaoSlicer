@@ -287,11 +287,15 @@ void GCodeViewer::SequentialRangeCap::reset() {
 
 void GCodeViewer::SequentialView::Marker::init(std::string filename)
 {
-    if (filename.empty()) {
+    // ShidaoSlicer fix: if the STL load fails (file missing, empty, or
+    // tripping qhull inside Model::read_from_file machinery), fall back to
+    // the procedural arrow so the GCodeViewer always has a valid marker
+    // and the slice → preview switch can never crash.
+    bool loaded = false;
+    if (!filename.empty())
+        loaded = m_model.init_from_file(filename);
+    if (!loaded)
         m_model.init_from(stilized_arrow(16, 1.5f, 3.0f, 0.8f, 3.0f));
-    } else {
-        m_model.init_from_file(filename);
-    }
     m_model.set_color({ 1.0f, 1.0f, 1.0f, 0.5f });
 }
 
