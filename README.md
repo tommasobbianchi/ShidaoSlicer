@@ -22,7 +22,7 @@
 
 **ShidaoSlicer is not affiliated with, endorsed by, or sponsored by OrcaSlicer / SoftFever, BambuStudio / Bambu Lab, or PrusaSlicer / Prusa Research.** It is an independent community fork released under the same license as upstream (AGPL-3.0-or-later).
 
-The project name and logo (samurai testing a blade) reference the classical Chinese practice of bench-testing a freshly forged sword — the workflow mindset here is exactly that: every change to the belt pipeline must pass a slice + safety-gate test before it touches a real machine. The katana / belt motif is original artwork generated for this fork; it is **not** a derivative of the OrcaSlicer orca logo.
+The name **Shidao (试刀)** is Chinese for *"testing the blade"* — the classical practice of a swordsman proving a freshly-forged **dao** (刀, the single-edged Chinese sabre) before trusting it in combat. The logo depicts that scene: a Chinese warrior bench-testing his dao. The workflow mindset here is exactly that — every change to the belt pipeline must pass a slice + safety-gate test before it touches a real machine. The artwork is original to this fork; it is **not** a derivative of the OrcaSlicer orca logo, and the weapon depicted is a **dao**, not a Japanese katana.
 
 This is **alpha-quality software** targeting a niche of printer (45°-inclined-belt CR-30 / IdeaFormer-IR3 family). Do not use it for production prints without validating each gcode through `validation/belt_gcode_gate.py` first. Driver-killer first-layer faults are an everyday risk on belt printers, and a small math error in the slicer becomes a 200 € TMC2240 in the bin.
 
