@@ -15440,8 +15440,8 @@ static boost::filesystem::path belt_supports_find_script()
     if (fs::exists(res)) return res;
     fs::path dev = fs::path(Slic3r::resources_dir()).parent_path().parent_path() / "validation" / "support_preprocess.py";
     if (fs::exists(dev)) return dev;
-    fs::path hard = "/home/user/projects/ORCA_BELT/validation/support_preprocess.py";
-    if (fs::exists(hard)) return hard;
+    // No further hard-coded fallback — set ORCABELT_VALIDATION_DIR env var when
+    // running against a source tree from a non-standard location.
     return fs::path{};
 }
 
@@ -15610,18 +15610,14 @@ static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
     }
 
     // Multi-object match: pair each object from the preprocessor output with
-    // the corresponding plate object. Try name first (stable across reload),
-    // fall back to index. The preprocessor preserves both: order in 3dmodel.model
-    // and the <metadata key="name"> value in model_settings.config.
-    auto match_dst = [&plater](const ModelObject* src, size_t fallback_idx) -> ModelObject* {
-        if (!src) return nullptr;
-        const std::string& name = src->name;
-        if (!name.empty()) {
-            for (ModelObject* dst : plater.model().objects)
-                if (dst && dst->name == name) return dst;
-        }
-        if (fallback_idx < plater.model().objects.size())
-            return plater.model().objects[fallback_idx];
+    // the corresponding plate object STRICTLY by name. No index fallback —
+    // mismatched-frame injection caused the Dragon Magnet "ghost supports
+    // under second jaw" bug (supports for object A applied with object B's
+    // instance transform produced the visible model↔toolpath offset).
+    auto match_dst = [&plater](const ModelObject* src) -> ModelObject* {
+        if (!src || src->name.empty()) return nullptr;
+        for (ModelObject* dst : plater.model().objects)
+            if (dst && dst->name == src->name) return dst;
         return nullptr;
     };
 
@@ -15630,7 +15626,7 @@ static bool belt_supports_inject_volumes(Plater& plater, bool keel_only)
     for (size_t si = 0; si < supported.objects.size(); ++si) {
         ModelObject* src = supported.objects[si];
         if (!src || src->volumes.size() < 2) continue;        // no extras to inject
-        ModelObject* dst = match_dst(src, si);
+        ModelObject* dst = match_dst(src);
         if (!dst) {
             belt_supports_log("WARN: no plate object matches preprocessor output '"
                               + src->name + "' (idx=" + std::to_string(si) + ")");

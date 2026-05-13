@@ -212,13 +212,8 @@ void start_ping_test()
         output_temp = output_i.ToStdString(wxConvUTF8);
         BOOST_LOG_TRIVIAL(info) << "ping bambulab:" << output_temp;
     }
-    //Get GateWay IP
-    wxExecute("ping <LAN_IP>", output, wxEXEC_NODISABLE);
-    for (int i = 0; i < output.size(); i++) {
-        output_i = output[i].To8BitData();
-        output_temp = output_i.ToStdString(wxConvUTF8);
-        BOOST_LOG_TRIVIAL(info) << "ping <LAN_IP>:" << output_temp;
-    }
+    // Skip gateway-IP probe — the original hard-coded LAN address was scrubbed
+    // for the public fork and a runtime gateway discovery is out of scope here.
 }
 
 std::string VersionInfo::convert_full_version(std::string short_version)

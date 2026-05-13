@@ -1384,9 +1384,14 @@ def export_3mf_two_volumes(source_3mf, support_local, output_path,
             f'transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
         )
         extra_components += f"\n   {wedge_component}"
+    # IMPORTANT: count=1 so the support components are added ONLY to the
+    # composite we found above (the FIRST <components> block). Without count=1
+    # str.replace patches every composite on a multi-object plate, which then
+    # renders shared support geometry under every model (Dragon Magnet bug).
     model_xml = model_xml.replace(
         "</components>",
         f"{extra_components}\n   </components>",
+        1,
     )
     files["3D/3dmodel.model"] = model_xml.encode()
 

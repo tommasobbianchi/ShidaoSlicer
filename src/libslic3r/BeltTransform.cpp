@@ -53,7 +53,10 @@ struct BeltConfig {
 
     void load() {
         if (loaded) return;
-        std::ifstream f("/home/user/projects/ORCA_BELT/belt_transform.ini");
+        // Override path via ORCABELT_TRANSFORM_INI env var; otherwise look in CWD.
+        // Transform coefficients are LOCKED — this file only tunes optional shifts.
+        const char* env = std::getenv("ORCABELT_TRANSFORM_INI");
+        std::ifstream f(env && *env ? env : "belt_transform.ini");
         if (f.is_open()) {
             std::string line;
             while (std::getline(f, line)) {
