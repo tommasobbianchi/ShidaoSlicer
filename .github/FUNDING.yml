@@ -1,3 +1,5 @@
-github: SoftFever
-ko_fi: SoftFever
-custom: https://paypal.me/softfever3d
+# Donations to support ShidaoSlicer development
+#
+# If this fork saved you a print (or a TMC2240), consider chipping in for
+# filament, replacement parts, and time spent on belt-specific bugs.
+custom: ['https://paypal.me/tommasobbianchi']
