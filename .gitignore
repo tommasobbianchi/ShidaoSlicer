@@ -49,6 +49,12 @@ src/package/
 .claude/
 validation_output/
 
+# Secrets — never commit. Real values live in ~/.secrets/credentials.yaml.
+.config.env
+*.env.local
+.env.local
+secrets.yaml
+
 # === ORCA_BELT additions ===
 # Trash bins
 .Trash-*/
