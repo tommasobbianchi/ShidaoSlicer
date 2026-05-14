@@ -1,8 +1,10 @@
-# ORCA_BELT: Hardcoded paths for Behemoth
-set(LIBNOISE_INCLUDE_DIR "/usr/include")
-set(LIBNOISE_LIBRARY_RELEASE "/usr/lib/libnoise.so")
-set(libnoise_LIB_FOUND TRUE)
-set(libnoise_FOUND TRUE)
+# ShidaoSlicer: the earlier rescue commit pre-populated absolute paths to
+# /usr/include and /usr/lib/libnoise.so above the proper find_path / find_library
+# calls and set libnoise_FOUND = TRUE unconditionally, so on any machine that
+# lacked the system libnoise-dev (CI, Flatpak, fresh distros) ninja would later
+# fail with "/usr/lib/libnoise.so missing and no known rule to make it".
+# Standard find_*() machinery below correctly resolves the library on every
+# target without needing the hardcoded hints.
 
 find_path(LIBNOISE_INCLUDE_DIR libnoise/noise.h)
 
