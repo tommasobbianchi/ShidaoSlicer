@@ -24,17 +24,28 @@
 #include <csignal>
 #include <string>
 #include <vector>
+
+// The WebKit-isolator subprocess fix (commit 3a116ffdec) targets the
+// libjavascriptcoregtk SIGSEGV that's specific to wxWebView's GTK back-end
+// (webkit2gtk-4.1). Windows wxWebView uses Edge WebView2 and macOS uses
+// WKWebView; neither suffers from the JSC/TBB/GL clash. On those platforms
+// we ship a no-op stub class so the GUI links — embedding the native widget
+// would be a separate piece of work, not a CI blocker.
+#if defined(__linux__)
+#define ORCABELT_USE_WEBKIT_SUBPROCESS 1
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <unistd.h>
 #include <fcntl.h>
+#endif
 
 namespace Slic3r {
 namespace GUI {
 
 namespace {
 
+#if defined(ORCABELT_USE_WEBKIT_SUBPROCESS)
 // Locate the orcabelt-fluidd-host binary. Precedence:
 //   1. $ORCABELT_FLUIDD_HOST (absolute path override)
 //   2. Sibling of /proc/self/exe (same bin/ as orca-slicer)
@@ -56,6 +67,7 @@ std::string locate_host_binary()
     }
     return "orcabelt-fluidd-host";
 }
+#endif // ORCABELT_USE_WEBKIT_SUBPROCESS
 
 constexpr int GEOM_POLL_MS = 100;
 
@@ -252,6 +264,14 @@ void PrinterWebView::push_geom(bool force)
 
 void PrinterWebView::ensure_started()
 {
+#if !defined(ORCABELT_USE_WEBKIT_SUBPROCESS)
+    // No-op stub for Windows/macOS — wxWebView uses native back-ends there
+    // (Edge WebView2 / WKWebView) which don't suffer from the webkit2gtk
+    // JSC SIGSEGV. The embedded Klipper UI path on those platforms is a
+    // separate piece of work; for now the panel stays at the loading
+    // placeholder.
+    return;
+#else
     if (m_fallback_mode) {
         // Already given up on the embed for this URL — user must hit
         // "Retry embed" to re-attempt. Avoids a crash → respawn → crash
@@ -375,10 +395,15 @@ void PrinterWebView::ensure_started()
 
     if (m_geom_timer && IsShown())
         m_geom_timer->Start(GEOM_POLL_MS);
+#endif // ORCABELT_USE_WEBKIT_SUBPROCESS
 }
 
 bool PrinterWebView::send_command(const char* cmd)
 {
+#if !defined(ORCABELT_USE_WEBKIT_SUBPROCESS)
+    (void)cmd;
+    return false;
+#else
     if (m_child_pid <= 0 || m_child_stdin_fd < 0) return false;
     size_t len = strlen(cmd);
     ssize_t w = write(m_child_stdin_fd, cmd, len);
@@ -396,10 +421,14 @@ bool PrinterWebView::send_command(const char* cmd)
         return false;
     }
     return true;
+#endif // ORCABELT_USE_WEBKIT_SUBPROCESS
 }
 
 void PrinterWebView::reap_if_dead()
 {
+#if !defined(ORCABELT_USE_WEBKIT_SUBPROCESS)
+    return;
+#else
     if (m_child_pid <= 0) return;
     int status = 0;
     pid_t r = waitpid(m_child_pid, &status, WNOHANG);
@@ -423,6 +452,7 @@ void PrinterWebView::reap_if_dead()
             enter_fallback_mode();
         }
     }
+#endif // ORCABELT_USE_WEBKIT_SUBPROCESS
 }
 
 void PrinterWebView::enter_fallback_mode()
@@ -470,6 +500,9 @@ void PrinterWebView::on_retry_embed(wxCommandEvent& /*evt*/)
 
 void PrinterWebView::stop_subprocess()
 {
+#if !defined(ORCABELT_USE_WEBKIT_SUBPROCESS)
+    return;
+#else
     if (m_child_pid <= 0) {
         if (m_child_stdin_fd >= 0) { close(m_child_stdin_fd); m_child_stdin_fd = -1; }
         return;
@@ -496,6 +529,7 @@ void PrinterWebView::stop_subprocess()
     int status = 0;
     waitpid(m_child_pid, &status, 0);
     m_child_pid = 0;
+#endif // ORCABELT_USE_WEBKIT_SUBPROCESS
 }
 
 } // namespace GUI

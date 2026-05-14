@@ -5,7 +5,15 @@
 #include <wx/string.h>
 #include <wx/timer.h>
 
+#if defined(_WIN32)
+// MSVC's <sys/types.h> doesn't define pid_t. The WebKit-subprocess isolator
+// in PrinterWebView.cpp is Linux-only (Windows uses Edge WebView2 directly,
+// no JSC/TBB/GL clash), so m_child_pid is unused on Windows — we just need
+// a type to satisfy the declaration.
+typedef int pid_t;
+#else
 #include <sys/types.h>  // pid_t
+#endif
 
 class wxStaticText;
 class wxButton;

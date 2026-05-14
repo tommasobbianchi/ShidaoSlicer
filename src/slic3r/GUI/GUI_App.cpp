@@ -28,13 +28,19 @@
 #include <cstdlib>
 #include <regex>
 #include <thread>
-// ORCA_BELT: crash-visibility plumbing (GLib log writer + sig handlers)
+// ORCA_BELT: crash-visibility plumbing (GLib log writer + sig handlers).
+// Linux-only — execinfo.h is glibc, glib.h is the GTK stack glue. On Windows
+// there's no glibc backtrace() and Edge WebView2 doesn't go through glib;
+// on macOS WKWebView is similar (and glib isn't installed by default). The
+// safety net is wxGTK-specific, so skipping it on non-Linux is correct.
+#if defined(__linux__)
 #include <signal.h>
 #include <execinfo.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
 #include <glib.h>
+#endif
 #include <string_view>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -2330,6 +2336,7 @@ std::string get_system_info()
     return out.str();
 }
 
+#if defined(__linux__)
 // ORCA_BELT: route GLib-GObject-CRITICAL (e.g. "invalid cast from 'wxPizza'
 // to 'GtkCellLayout'") into our Boost log at `info` instead of letting GLib
 // print to stderr and potentially abort() when G_DEBUG=fatal-criticals is
@@ -2384,14 +2391,17 @@ static void orcabelt_crash_handler(int sig)
     signal(sig, SIG_DFL);
     raise(sig);
 }
+#endif // __linux__ (orcabelt_glog_writer + orcabelt_crash_handler)
 
 bool GUI_App::on_init_inner()
 {
+#if defined(__linux__)
     // ORCA_BELT: install crash-visibility handlers BEFORE any GTK/wx init.
     g_log_set_writer_func(orcabelt_glog_writer, nullptr, nullptr);
     signal(SIGSEGV, orcabelt_crash_handler);
     signal(SIGABRT, orcabelt_crash_handler);
     signal(SIGBUS,  orcabelt_crash_handler);
+#endif
 
     wxLog::SetActiveTarget(new wxBoostLog());
 #if BBL_RELEASE_TO_PUBLIC
