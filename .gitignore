@@ -68,8 +68,9 @@ __pycache__/
 validation/test_output/
 validation/screenshots/
 validation/tests/directional/example_output.png
-# Detached upstream deps tree (source removed in a5611f9a0b; build/ + DL_CACHE/ already ignored above)
-/deps/
+# deps/ source tree IS tracked again (was accidentally removed in 59ee301c48
+# "Cleanup rescue branch", restored 2026-05-14 to unblock CI build_deps job).
+# Only the build outputs are ignored (rules above: deps/build*, deps/DL_CACHE/).
 .gitnexus
 
 # Beads / Dolt files (added by bd init)
