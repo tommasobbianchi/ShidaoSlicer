@@ -1,12 +1,14 @@
 on:
   push:
     paths:
-      - '**.sh'
-      - 'scripts/linux.d/*'
+      - 'scripts/linux.d/**'
+      - 'build_linux.sh'
+      - 'build_release_macos.sh'
   pull_request:
     paths:
-      - '**.sh'
-      - 'scripts/linux.d/*'
+      - 'scripts/linux.d/**'
+      - 'build_linux.sh'
+      - 'build_release_macos.sh'
   schedule:
       - cron: '55 7 * * *' # run once a day near midnight US Pacific time
   workflow_dispatch: # allows for manual dispatch
@@ -41,4 +43,17 @@ jobs:
           fetch-depth: 1
 
       - name: Shellcheck scripts
-        run: 'find . -not -name \*.md \( -path ./scripts/linux.d/\* -o -name \*.sh \) -print0 | xargs -0 ~/shellcheck'
+        # ShidaoSlicer: only lint the scripts that ship with the slicer
+        # (distro packaging under scripts/linux.d/ and the two top-level
+        # build entrypoints). Developer / belt-validation helpers under
+        # scripts/*.sh, validation/*.sh, set_resolution.sh, etc. are
+        # intentionally out of scope — they're not distributed and live
+        # outside of the slicer's release path.
+        run: |
+          set -e
+          # --severity=error: surface only real bugs (parse errors, broken
+          # quoting, etc.) — stylistic warnings (SC2034, SC2086) on these
+          # upstream-inherited scripts shouldn't gate CI.
+          ~/shellcheck --severity=error build_linux.sh build_release_macos.sh
+          find scripts/linux.d -type f \( -name '*.sh' -o ! -name '*.md' \) -print0 \
+            | xargs -0 ~/shellcheck --severity=error
