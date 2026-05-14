@@ -144,26 +144,15 @@ endif()
 # Include utility functions for version information
 include(${CMAKE_CURRENT_LIST_DIR}/OpenVDBUtils.cmake)
 
-# ORCA_BELT: Hardcoded paths for Ubuntu 24.04 (Behemoth)
-message(STATUS "Force-setting OpenVDB paths for Behemoth...")
-set(OpenVDB_INCLUDE_DIR "/usr/include")
-set(OpenVDB_openvdb_LIBRARY "/usr/lib/x86_64-linux-gnu/libopenvdb.so")
-set(OpenVDB_openvdb_LIBRARY_RELEASE "/usr/lib/x86_64-linux-gnu/libopenvdb.so")
-set(OpenVDB_LIB_COMPONENTS "/usr/lib/x86_64-linux-gnu/libopenvdb.so")
-set(OpenVDB_VERSION "10.0.1")
-set(OpenVDB_FOUND TRUE)
-
-# Manually create the target because we are returning early
-if(NOT TARGET OpenVDB::openvdb)
-    add_library(OpenVDB::openvdb UNKNOWN IMPORTED)
-    set_target_properties(OpenVDB::openvdb PROPERTIES
-      INTERFACE_INCLUDE_DIRECTORIES "${OpenVDB_INCLUDE_DIR}"
-      IMPORTED_LOCATION "${OpenVDB_openvdb_LIBRARY}"
-    )
-endif()
-
-return()
-
+# ShidaoSlicer: the earlier rescue commit hardcoded
+# /usr/lib/x86_64-linux-gnu/libopenvdb.so + early return() here, which only
+# works on the original dev box (Ubuntu 24.04 with `libopenvdb-dev` apt
+# installed) and broke every other build (CI, Flatpak, fresh distros).
+# Restored the standard find_library() flow below; on the dev box it still
+# resolves to the apt-installed system libopenvdb, on CI / Flatpak it
+# picks up the one built into deps/build/destdir, and on machines that
+# have neither it fails loudly (instead of silently pointing at a path
+# that may not exist on the link line).
 
 mark_as_advanced(
   OpenVDB_INCLUDE_DIR
