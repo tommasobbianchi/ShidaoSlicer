@@ -7,12 +7,17 @@ on:
      - release/*
     paths:
      - 'deps/**'
+     - 'deps_src/**'
      - 'src/**'
+     - 'cmake/**'
      - '**/CMakeLists.txt'
      - 'version.inc'
      - 'localization/**'
      - 'resources/**'
      - ".github/workflows/build_*.yml"
+     - 'build_linux.sh'
+     - 'build_release_vs2022.bat'
+     - 'build_release_macos.sh'
      - 'scripts/flatpak/**'
 
   pull_request:
@@ -23,6 +28,7 @@ on:
      - 'deps/**'
      - 'deps_src/**'
      - 'src/**'
+     - 'cmake/**'
      - '**/CMakeLists.txt'
      - 'version.inc'
      - ".github/workflows/build_*.yml"
