@@ -510,7 +510,7 @@ set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE ON CACHE BOOL "" FORCE)
 cmake_policy(PUSH)
 cmake_policy(SET CMP0011 NEW)
 find_package(CGAL REQUIRED)
-find_package(OpenCV REQUIRED core imgproc imgcodecs)
+find_package(OpenCV REQUIRED core)
 find_path(IMATH_INCLUDE_DIR NAMES ImathVec.h PATH_SUFFIXES Imath OpenEXR)
 find_library(IMATH_LIB NAMES Imath-3_1 Imath Imath-2_5)
 if (NOT IMATH_LIB OR NOT IMATH_INCLUDE_DIR)
@@ -529,12 +529,14 @@ add_library(libslic3r_cgal STATIC
 )
 target_include_directories(libslic3r_cgal PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-# Explicitly find Blosc for OpenVDB dependency
-find_library(BLOSC_LIB NAMES blosc)
-if (NOT BLOSC_LIB)
-    message(WARNING "Blosc library not found by find_library, linking might fail if OpenVDB needs it")
-endif()
-
+# Blosc is required transitively by OpenVDB v8.2, but FindOpenVDB's
+# automatic dependency walk (it greps PREREQUISITES out of the lib) is
+# unreliable on static OpenVDB — Blosc::blosc ends up in
+# IMPORTED_LINK_DEPENDENT_LIBRARIES (a shared-lib runtime hint, NOT a link
+# flag) instead of INTERFACE_LINK_LIBRARIES, so the link line is missing
+# the symbols. Link Blosc explicitly. BloscConfig.cmake ships in the
+# deps install on every target (Linux/macOS/Windows).
+find_package(Blosc CONFIG REQUIRED)
 
 # Reset compile options of libslic3r_cgal. Despite it being linked privately, CGAL options
 # (-frounding-math) still propagate to dependent libs which is not desired.
@@ -617,7 +619,7 @@ target_link_libraries(libslic3r
         TBB::tbb
         cereal::cereal
         OpenVDB::openvdb
-        ${BLOSC_LIB}
+        Blosc::blosc
         clipper
         Clipper2
         eigen
