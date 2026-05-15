@@ -1,8 +1,13 @@
-if (MSVC)
-    set(_use_IPP "-DWITH_IPP=ON")
-else ()
-    set(_use_IPP "-DWITH_IPP=OFF")
-endif ()
+# Force WITH_IPP=OFF on all platforms. On MSVC the upstream recipe used
+# WITH_IPP=ON, which pulls Intel IPP-ICV (an external static asset OpenCV
+# downloads at configure time). opencv_world<ver>.lib then references
+# `ippicv*` / `ippiw*` symbols, but the IPP-ICV .lib is not exposed in
+# OpenCV_LIBS and is not exported to consumers — orca-slicer's final link
+# fails with hundreds of `error LNK2001: unresolved external symbol
+# ippicvi*`. SkipPartCanvas.cpp is the sole cv:: consumer and does not
+# rely on IPP-accelerated paths; turning IPP off across the board avoids
+# carrying an extra static library through the whole link chain.
+set(_use_IPP "-DWITH_IPP=OFF")
 
 if (IN_GIT_REPO)
     set(OpenCV_DIRECTORY_FLAG --directory ${BINARY_DIR_REL}/dep_OpenCV-prefix/src/dep_OpenCV)
