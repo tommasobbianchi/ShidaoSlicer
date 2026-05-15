@@ -592,7 +592,33 @@ if (_OPENCV_WORLD_LIB)
     # they're not transitively visible to the final executable; bake them
     # into OpenCV_LIBS (which is PUBLIC) so orca-slicer's link line picks
     # them up alongside libopencv_world.a.
-    set(OpenCV_LIBS ${_OPENCV_WORLD_LIB} PNG::PNG JPEG::JPEG ZLIB::ZLIB)
+    set(_OCV_WORLD_EXTRA_LIBS)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # On the CI runner libopencv_world.a was compiled against the host's
+        # /usr/lib/x86_64-linux-gnu/libpng16.so, so grfmt_png.cpp.o inside
+        # opencv_world references the versioned symbol
+        # png_read_update_info@@PNG16_0 which the static deps libpng.a (no
+        # SONAME, no symbol versioning) cannot satisfy. Add the system
+        # shared libpng16 to the link line so the versioned PNG symbols
+        # resolve. PNG::PNG (the static deps libpng.a) stays for the rest
+        # of slic3r's own PNG usage.
+        find_library(_SYS_LIBPNG16 NAMES png16 png)
+        if (_SYS_LIBPNG16)
+            message(STATUS "Linking system shared libpng16 for opencv_world: ${_SYS_LIBPNG16}")
+            list(APPEND _OCV_WORLD_EXTRA_LIBS ${_SYS_LIBPNG16})
+        endif()
+    elseif (APPLE)
+        # On macOS libopencv_world.a was built with WITH_TIFF=ON against the
+        # SDK's libtiff (libtiff.tbd); grfmt_tiff.cpp.o needs _TIFFOpen,
+        # _TIFFClientOpen, _TIFFGetField, etc. The deps install does not
+        # ship a static libtiff, so link the system libtiff explicitly.
+        find_library(_SYS_LIBTIFF NAMES tiff)
+        if (_SYS_LIBTIFF)
+            message(STATUS "Linking system libtiff for opencv_world: ${_SYS_LIBTIFF}")
+            list(APPEND _OCV_WORLD_EXTRA_LIBS ${_SYS_LIBTIFF})
+        endif()
+    endif()
+    set(OpenCV_LIBS ${_OPENCV_WORLD_LIB} PNG::PNG JPEG::JPEG ZLIB::ZLIB ${_OCV_WORLD_EXTRA_LIBS})
 endif()
 
 set(OCCT_LIBS

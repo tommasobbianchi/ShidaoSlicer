@@ -5,18 +5,14 @@
 #include <wx/string.h>
 #include <wx/timer.h>
 
-#if defined(_WIN32)
-// The WebKit-subprocess isolator in PrinterWebView.cpp is Linux-only
-// (Windows uses Edge WebView2 directly — no JSC/TBB/GL clash), so
-// m_child_pid is declared but never touched on Windows. Windows SDK 10+
-// and boost can both expose pid_t already, so guard against double
-// definition (typedef'ing it twice yields C2632: 'int' followed by 'int').
-#if !defined(_PID_T_) && !defined(_PID_T_DEFINED)
-#define _PID_T_
-#define _PID_T_DEFINED
-typedef int pid_t;
-#endif
-#else
+// The WebKit-subprocess isolator in PrinterWebView.cpp only runs on Linux
+// (Windows uses Edge WebView2 directly, macOS uses WKWebView), so the
+// m_child_pid member is never read or written outside the Linux branch.
+// On Linux we use the real pid_t (signed int per POSIX); elsewhere we
+// just declare it as int. Avoid a custom `typedef int pid_t;` on Windows
+// because MSVC headers (and boost) may already declare it and the second
+// declaration trips C2632 "'int' followed by 'int' is illegal".
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 #include <sys/types.h>  // pid_t
 #endif
 
@@ -78,7 +74,11 @@ private:
     wxButton*     m_retry_btn      = nullptr;
     wxTimer*      m_geom_timer     = nullptr;
 
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
     pid_t m_child_pid = 0;
+#else
+    int   m_child_pid = 0;   // Windows: subprocess isolator unused, placeholder
+#endif
     int   m_child_stdin_fd = -1;
     long long m_spawn_time_ms = 0;  // monotonic ms when subprocess started
     bool      m_fallback_mode = false;
