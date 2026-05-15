@@ -6,11 +6,16 @@
 #include <wx/timer.h>
 
 #if defined(_WIN32)
-// MSVC's <sys/types.h> doesn't define pid_t. The WebKit-subprocess isolator
-// in PrinterWebView.cpp is Linux-only (Windows uses Edge WebView2 directly,
-// no JSC/TBB/GL clash), so m_child_pid is unused on Windows — we just need
-// a type to satisfy the declaration.
+// The WebKit-subprocess isolator in PrinterWebView.cpp is Linux-only
+// (Windows uses Edge WebView2 directly — no JSC/TBB/GL clash), so
+// m_child_pid is declared but never touched on Windows. Windows SDK 10+
+// and boost can both expose pid_t already, so guard against double
+// definition (typedef'ing it twice yields C2632: 'int' followed by 'int').
+#if !defined(_PID_T_) && !defined(_PID_T_DEFINED)
+#define _PID_T_
+#define _PID_T_DEFINED
 typedef int pid_t;
+#endif
 #else
 #include <sys/types.h>  // pid_t
 #endif

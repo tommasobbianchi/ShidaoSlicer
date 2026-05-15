@@ -573,6 +573,28 @@ target_include_directories(libslic3r SYSTEM PUBLIC ${OpenCASCADE_INCLUDE_DIR})
 
 find_package(JPEG REQUIRED)
 
+# deps/OpenCV builds OpenCV with BUILD_opencv_world=ON, which installs ONLY
+# libopencv_world.{a,lib} — the per-module .a/.lib files (opencv_core,
+# opencv_imgproc, opencv_imgcodecs) are NOT produced. OpenCV_LIBS still
+# expands to the component names as bare strings, so `find_package(... core)`
+# gives `-lopencv_core` to the linker and fails with "cannot find
+# -lopencv_core". Probe for the unified world library and swap it in.
+# Placed after find_package(JPEG) so PNG::PNG / JPEG::JPEG / ZLIB::ZLIB
+# below are all real targets at this point.
+find_library(_OPENCV_WORLD_LIB
+    NAMES opencv_world libopencv_world
+    HINTS ${OpenCV_DIR}/../.. ${OpenCV_DIR}/../../..
+    PATH_SUFFIXES lib)
+if (_OPENCV_WORLD_LIB)
+    message(STATUS "Using unified OpenCV world library: ${_OPENCV_WORLD_LIB}")
+    # opencv_world bundles imgcodecs/imgproc and refers to libpng / libjpeg /
+    # zlib symbols. Those are already linked PRIVATE to libslic3r below, so
+    # they're not transitively visible to the final executable; bake them
+    # into OpenCV_LIBS (which is PUBLIC) so orca-slicer's link line picks
+    # them up alongside libopencv_world.a.
+    set(OpenCV_LIBS ${_OPENCV_WORLD_LIB} PNG::PNG JPEG::JPEG ZLIB::ZLIB)
+endif()
+
 set(OCCT_LIBS
     TKXDESTEP
     TKSTEP
