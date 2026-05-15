@@ -29,6 +29,21 @@ orcaslicer_add_cmake_project(OpenCV
        -DBUILD_TBB=OFF
        -DBUILD_WEBP=OFF
        -DBUILD_ZLIB=OFF
+       # Force OpenCV to use its internal libpng (BUILD_PNG=ON above)
+       # instead of the host's system libpng. On CI runners with
+       # libpng16-dev preinstalled, find_package(PNG) inside OpenCV
+       # would otherwise bind grfmt_png.cpp.o to libpng16.so's versioned
+       # symbols (png_read_update_info@@PNG16_0), which the static
+       # deps libpng.a (no SONAME) cannot satisfy at final link time.
+       -DCMAKE_DISABLE_FIND_PACKAGE_PNG=ON
+       # Drop libtiff entirely. cv::imread is used in exactly one place
+       # (SkipPartCanvas.cpp) and only reads PNG. WITH_TIFF=ON pulled
+       # grfmt_tiff.cpp.o into libopencv_world.a, which then required
+       # _TIFFOpen/_TIFFGetField/... at link time — on the macOS x86_64
+       # runner only the arm64-only /opt/homebrew/lib/libtiff.dylib is
+       # available (ld ignores it), and we don't want a system runtime
+       # dep on Linux either.
+       -DWITH_TIFF=OFF
        -DWITH_1394=OFF
        -DWITH_CUDA=OFF
        -DWITH_EIGEN=OFF

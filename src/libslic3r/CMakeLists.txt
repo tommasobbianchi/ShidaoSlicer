@@ -581,44 +581,39 @@ find_package(JPEG REQUIRED)
 # -lopencv_core". Probe for the unified world library and swap it in.
 # Placed after find_package(JPEG) so PNG::PNG / JPEG::JPEG / ZLIB::ZLIB
 # below are all real targets at this point.
+# Windows installs OpenCV as opencv_world<ver>.lib (e.g. opencv_world460.lib)
+# under x64/vc1[567]/staticlib instead of plain lib/, so list the versioned
+# name variants explicitly and add the MSVC install path suffixes.
 find_library(_OPENCV_WORLD_LIB
     NAMES opencv_world libopencv_world
+          opencv_world4 opencv_world460 opencv_world46
+          opencv_world470 opencv_world480 opencv_world490 opencv_world4100
     HINTS ${OpenCV_DIR}/../.. ${OpenCV_DIR}/../../..
-    PATH_SUFFIXES lib)
+          ${OpenCV_DIR}/.. ${CMAKE_PREFIX_PATH}
+    PATH_SUFFIXES lib staticlib
+                  x64/vc15/staticlib x64/vc16/staticlib x64/vc17/staticlib
+                  x64/vc15/lib       x64/vc16/lib       x64/vc17/lib)
+# Last-resort glob fallback for Windows installs where the versioned suffix
+# changes across OpenCV releases.
+if (NOT _OPENCV_WORLD_LIB)
+    file(GLOB _OPENCV_WORLD_GLOB
+        "${CMAKE_PREFIX_PATH}/lib/opencv_world*.lib"
+        "${CMAKE_PREFIX_PATH}/lib/libopencv_world*.a"
+        "${CMAKE_PREFIX_PATH}/staticlib/opencv_world*.lib"
+        "${CMAKE_PREFIX_PATH}/x64/*/staticlib/opencv_world*.lib"
+        "${CMAKE_PREFIX_PATH}/x64/*/lib/opencv_world*.lib")
+    if (_OPENCV_WORLD_GLOB)
+        list(GET _OPENCV_WORLD_GLOB 0 _OPENCV_WORLD_LIB)
+    endif()
+endif()
 if (_OPENCV_WORLD_LIB)
     message(STATUS "Using unified OpenCV world library: ${_OPENCV_WORLD_LIB}")
-    # opencv_world bundles imgcodecs/imgproc and refers to libpng / libjpeg /
-    # zlib symbols. Those are already linked PRIVATE to libslic3r below, so
-    # they're not transitively visible to the final executable; bake them
-    # into OpenCV_LIBS (which is PUBLIC) so orca-slicer's link line picks
-    # them up alongside libopencv_world.a.
-    set(_OCV_WORLD_EXTRA_LIBS)
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        # On the CI runner libopencv_world.a was compiled against the host's
-        # /usr/lib/x86_64-linux-gnu/libpng16.so, so grfmt_png.cpp.o inside
-        # opencv_world references the versioned symbol
-        # png_read_update_info@@PNG16_0 which the static deps libpng.a (no
-        # SONAME, no symbol versioning) cannot satisfy. Add the system
-        # shared libpng16 to the link line so the versioned PNG symbols
-        # resolve. PNG::PNG (the static deps libpng.a) stays for the rest
-        # of slic3r's own PNG usage.
-        find_library(_SYS_LIBPNG16 NAMES png16 png)
-        if (_SYS_LIBPNG16)
-            message(STATUS "Linking system shared libpng16 for opencv_world: ${_SYS_LIBPNG16}")
-            list(APPEND _OCV_WORLD_EXTRA_LIBS ${_SYS_LIBPNG16})
-        endif()
-    elseif (APPLE)
-        # On macOS libopencv_world.a was built with WITH_TIFF=ON against the
-        # SDK's libtiff (libtiff.tbd); grfmt_tiff.cpp.o needs _TIFFOpen,
-        # _TIFFClientOpen, _TIFFGetField, etc. The deps install does not
-        # ship a static libtiff, so link the system libtiff explicitly.
-        find_library(_SYS_LIBTIFF NAMES tiff)
-        if (_SYS_LIBTIFF)
-            message(STATUS "Linking system libtiff for opencv_world: ${_SYS_LIBTIFF}")
-            list(APPEND _OCV_WORLD_EXTRA_LIBS ${_SYS_LIBTIFF})
-        endif()
-    endif()
-    set(OpenCV_LIBS ${_OPENCV_WORLD_LIB} PNG::PNG JPEG::JPEG ZLIB::ZLIB ${_OCV_WORLD_EXTRA_LIBS})
+    # opencv_world is self-contained: WITH_TIFF=OFF and
+    # CMAKE_DISABLE_FIND_PACKAGE_PNG=ON in deps/OpenCV/OpenCV.cmake mean it
+    # bundles libpng internally and does not pull in TIFF symbols. We still
+    # link the deps PNG::PNG / JPEG::JPEG / ZLIB::ZLIB targets PUBLIC for the
+    # rest of slic3r's own PNG/JPEG/ZLIB usage.
+    set(OpenCV_LIBS ${_OPENCV_WORLD_LIB} PNG::PNG JPEG::JPEG ZLIB::ZLIB)
 endif()
 
 set(OCCT_LIBS
