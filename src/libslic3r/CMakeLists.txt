@@ -608,32 +608,20 @@ if (NOT _OPENCV_WORLD_LIB)
 endif()
 if (_OPENCV_WORLD_LIB)
     message(STATUS "Using unified OpenCV world library: ${_OPENCV_WORLD_LIB}")
-    # opencv_world is self-contained: WITH_TIFF=OFF and
-    # CMAKE_DISABLE_FIND_PACKAGE_PNG=ON in deps/OpenCV/OpenCV.cmake mean it
-    # bundles libpng internally and does not pull in TIFF symbols. We still
-    # link the deps PNG::PNG / JPEG::JPEG / ZLIB::ZLIB targets PUBLIC for the
-    # rest of slic3r's own PNG/JPEG/ZLIB usage.
-    set(OpenCV_LIBS ${_OPENCV_WORLD_LIB} PNG::PNG JPEG::JPEG ZLIB::ZLIB)
-
-    if (APPLE)
-        # Xcode 15's ld64 dedupes duplicate .a inputs and only keeps the first
-        # occurrence. PNG::PNG (deps libpng.a) appears multiple times in the
-        # final orca-slicer link line — earlier (pulled in by wxWidgets and
-        # other GTK-style deps) and later (after libopencv_world.a). ld dedupes
-        # the later copies and only processes the FIRST occurrence; by then,
-        # libopencv_world.a hasn't been visited yet, so grfmt_png.cpp.o's
-        # later request for png_create_info_struct / png_init_io / ... goes
-        # unresolved. Force-load libpng.a here so all its .o objects are
-        # eagerly absorbed into the binary regardless of dedup order.
-        get_target_property(_PNG_LIB_FILE PNG::PNG IMPORTED_LOCATION_RELEASE)
-        if (NOT _PNG_LIB_FILE)
-            get_target_property(_PNG_LIB_FILE PNG::PNG IMPORTED_LOCATION)
-        endif()
-        if (_PNG_LIB_FILE)
-            message(STATUS "Force-loading deps libpng.a for macOS ld64 dedup workaround: ${_PNG_LIB_FILE}")
-            list(APPEND OpenCV_LIBS "-Wl,-force_load,${_PNG_LIB_FILE}")
-        endif()
-    endif()
+    # opencv_world is built with BUILD_PNG=ON +
+    # CMAKE_DISABLE_FIND_PACKAGE_PNG=ON (see deps/OpenCV/OpenCV.cmake): the
+    # grfmt_png.cpp.o inside libopencv_world.{a,lib} references the standard
+    # `png_*` symbols, but OpenCV does NOT export its internal libpng
+    # 3rdparty archive through OpenCV_LIBS — so consumers must satisfy those
+    # symbols themselves. We list PNG::PNG (and ZLIB::ZLIB, libpng's
+    # dependency) BEFORE opencv_world in OpenCV_LIBS so the linker walks
+    # libpng.a first, registers its png_* / zlib symbols, and then resolves
+    # the grfmt_png.cpp.o references when opencv_world is processed. This
+    # ordering is what makes Mac (ld64 dedup-safe), Linux, and Windows
+    # all link cleanly. deps/PNG/PNG.cmake also strips PNG_PREFIX so the
+    # deps libpng exports unprefixed `png_*` names that match what
+    # opencv_world is asking for.
+    set(OpenCV_LIBS PNG::PNG ZLIB::ZLIB ${_OPENCV_WORLD_LIB} JPEG::JPEG)
 endif()
 
 set(OCCT_LIBS

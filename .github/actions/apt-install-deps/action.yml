@@ -9,23 +9,3 @@ runs:
         mkdir -p ${{ github.workspace }}/deps/build/destdir
         sudo env "ORCA_UPDATER_SIG_KEY=$ORCA_UPDATER_SIG_KEY" ./build_linux.sh -ur
         sudo chown $USER -R ./
-
-    - name: Strip system libpng/libtiff dev headers (CI-only)
-      shell: bash
-      run: |
-        # GitHub-hosted Ubuntu runners pre-install libpng-dev/libtiff-dev as a
-        # transitive dependency of libgtk-3-dev/libwebkit2gtk-4.1-dev. When
-        # OpenCV is configured with BUILD_PNG=ON + CMAKE_DISABLE_FIND_PACKAGE_PNG=ON,
-        # find_package(PNG) is correctly skipped — but the compile of
-        # grfmt_png.cpp still picks up /usr/include/png.h via the system include
-        # path, baking versioned `png_*@@PNG16_0` symbol references into
-        # libopencv_world.a(grfmt_png.cpp.o). The deps' bundled libpng.a (no
-        # SONAME, no symbol versioning) then cannot satisfy them at the final
-        # orca-slicer link. Removing only the *-dev packages keeps the runtime
-        # shared libraries (libpng16.so.16, libtiff.so.6) in place for the GTK
-        # stack while preventing OpenCV from finding system headers.
-        sudo apt-get remove -y --no-auto-remove libpng-dev libtiff-dev libtiffxx6 2>/dev/null || true
-        sudo rm -f /usr/include/png.h /usr/include/pngconf.h /usr/include/pnglibconf.h
-        sudo rm -rf /usr/include/libpng16
-        sudo rm -f /usr/include/tiff.h /usr/include/tiffio.h /usr/include/tiffconf.h /usr/include/tiffvers.h /usr/include/tiffio.hxx
-        echo "Stripped libpng/libtiff dev headers — OpenCV will use its bundled 3rdparty copies."
