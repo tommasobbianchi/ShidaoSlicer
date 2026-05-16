@@ -328,8 +328,11 @@ jobs:
           ubuntu-ver-str: ${{ (inputs.os == 'ubuntu-24.04' && '_Ubuntu2404') || '' }}
         run: |
           ./build_linux.sh -istr
-          mv -n ./build/OrcaSlicer_Linux_V${{ env.ver_pure }}.AppImage ./build/OrcaSlicer_Linux_AppImage${{ env.ubuntu-ver-str }}_${{ env.ver }}.AppImage
-          chmod +x ./build/OrcaSlicer_Linux_AppImage${{ env.ubuntu-ver-str }}_${{ env.ver }}.AppImage
+          # build_appimage.sh.in produces OrcaBelt_Linux_V<ver>.AppImage because
+          # SLIC3R_APP_KEY=OrcaBelt (see version.inc). Source name must match
+          # what build_appimage.sh.in actually emits.
+          mv -n ./build/OrcaBelt_Linux_V${{ env.ver_pure }}.AppImage ./build/OrcaBelt_Linux_AppImage${{ env.ubuntu-ver-str }}_${{ env.ver }}.AppImage
+          chmod +x ./build/OrcaBelt_Linux_AppImage${{ env.ubuntu-ver-str }}_${{ env.ver }}.AppImage
           tar -cvpf build_tests.tar build/tests
 
         # Use tar because upload-artifacts won't always preserve directory structure
@@ -360,8 +363,8 @@ jobs:
           ubuntu-ver-str: ${{ (inputs.os == 'ubuntu-24.04' && '_Ubuntu2404') || '' }}
         uses: actions/upload-artifact@v5
         with:
-          name: OrcaSlicer_Linux_ubuntu_${{ env.ubuntu-ver }}_${{ env.ver }}
-          path: './build/OrcaSlicer_Linux_AppImage${{ env.ubuntu-ver-str }}_${{ env.ver }}.AppImage'
+          name: OrcaBelt_Linux_ubuntu_${{ env.ubuntu-ver }}_${{ env.ver }}
+          path: './build/OrcaBelt_Linux_AppImage${{ env.ubuntu-ver-str }}_${{ env.ver }}.AppImage'
 
       - name: Upload OrcaSlicer_profile_validator Ubuntu
         if: ${{ ! env.ACT && inputs.os == 'ubuntu-20.04' || inputs.os == 'ubuntu-24.04' }}
