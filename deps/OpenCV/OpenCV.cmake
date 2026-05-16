@@ -53,6 +53,15 @@ orcaslicer_add_cmake_project(OpenCV
        -DWITH_CUDA=OFF
        -DWITH_EIGEN=OFF
        ${_use_IPP}
+       # WITH_CAROTENE=OFF. Carotene is OpenCV's ARM NEON HAL accelerator,
+       # built as a separate 3rdparty static archive on arm64 macOS but not
+       # exposed in OpenCV_LIBS — so opencv_world.a(arithm.dispatch.cpp.o)
+       # ends up with hundreds of unresolved `carotene_o4t::*` symbols at
+       # the final orca-slicer link on macOS arm64. The C++ fallback paths
+       # are perfectly sufficient for SkipPartCanvas's single cv::imread
+       # and ObjColorUtils's k-means clustering — neither needs NEON-tuned
+       # bitwiseAnd / addWeighted / resizeArea.
+       -DWITH_CAROTENE=OFF
        -DWITH_ITT=OFF
        -DWITH_FFMPEG=OFF
        -DWITH_GPHOTO2=OFF
