@@ -9,6 +9,9 @@ on:
 
 jobs:
   assign:
+    # Upstream-only: targets noisyfox/softfever maintainers who don't exist
+    # on this fork. Skip on forks to avoid daily cron failure noise.
+    if: github.repository == 'OrcaSlicer/OrcaSlicer'
     permissions:
       issues: write
     runs-on: ubuntu-latest

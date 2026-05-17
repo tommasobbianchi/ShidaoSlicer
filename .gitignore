@@ -84,3 +84,7 @@ validation/sweeps/support_v*/*.3mf
 validation/sweeps/support_v*/snaps/
 validation/sweeps/support_v*/variants/
 validation/sweeps/support_v*/result.json
+
+# Local-only temp checkouts of external projects (e.g. Kiri:Moto reference clone)
+temp_kiri/
+temp_*/
