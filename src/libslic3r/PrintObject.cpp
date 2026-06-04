@@ -4009,18 +4009,29 @@ void PrintObject::_generate_support_material()
     // ORCA_BELT: Fill in belt_floor_z_shift for native-clipped support now that
     // layers exist. The belt floor (z_mach = 0 locus) in slicing space is
     //   y_virt = print_z - belt_z_base,
-    // where belt_z_base is the print_z of the first non-empty layer (same value
-    // GCode.cpp subtracts before emitting the layer Z literal). Setting
-    // belt_floor_z_shift = belt_z_base makes BeltFloorContext's cut line coincide
-    // exactly with z_mach = 0, so the forbidden (clipped) half-plane is precisely
-    // the belt interior. shear_factor/from_axis were set in update_slicing_parameters.
+    // where belt_z_base is the GLOBAL base GCode.cpp subtracts before emitting the
+    // layer Z literal. Setting belt_floor_z_shift = belt_z_base makes
+    // BeltFloorContext's cut line coincide exactly with z_mach = 0, so the
+    // forbidden (clipped) half-plane is precisely the belt interior.
+    // shear_factor/from_axis were set in update_slicing_parameters.
+    //
+    // Match GCode.cpp:2353 EXACTLY: the first non-empty layer scanning print
+    // objects in order, breaking at the first object that has one. The gcode
+    // subtracts this same single global base from EVERY object's layer Z, so a
+    // per-object first-layer value would clip multi-object belt plates on the
+    // wrong plane. Single-object (the belt norm) reduces to this object's first
+    // non-empty layer. (Standard Print::process slices each object before its own
+    // support step, so the leading object's layers exist when this runs.)
     if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON) {
         double belt_z_base = 0.0;
-        for (const Layer *layer : this->layers()) {
-            if (!layer->empty()) {
-                belt_z_base = layer->print_z;
-                break;
+        for (const PrintObject *obj : this->print()->objects()) {
+            for (const Layer *layer : obj->layers()) {
+                if (!layer->empty()) {
+                    belt_z_base = layer->print_z;
+                    break;
+                }
             }
+            if (belt_z_base > 0.0) break;
         }
         m_slicing_params.belt_floor_z_shift = belt_z_base;
     }
