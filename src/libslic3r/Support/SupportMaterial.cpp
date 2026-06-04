@@ -5,6 +5,7 @@
 #include "Print.hpp"
 #include "SupportMaterial.hpp"
 #include "SupportCommon.hpp"
+#include "BeltFloorContext.hpp"
 #include "Geometry.hpp"
 #include "Point.hpp"
 #include "MutablePolygon.hpp"
@@ -367,9 +368,82 @@ inline void layers_append(SupportGeneratorLayersPtr &dst, const SupportGenerator
 }
 
 // Support layer that is covered by some form of dense interface.
-static constexpr const std::initializer_list<SupporLayerType> support_types_interface { 
+static constexpr const std::initializer_list<SupporLayerType> support_types_interface {
     SupporLayerType::RaftInterface, SupporLayerType::BottomContact, SupporLayerType::BottomInterface, SupporLayerType::TopContact, SupporLayerType::TopInterface
 };
+
+// ===========================================================================
+// ORCA_BELT: native belt-floor support clipping (opt-in, CLASSIC/grid only).
+// Ported (grid-only) from upstream PR #12998. ADDITIVE: only active when the
+// user selects belt_support_mode = NativeClipped. The default Preprocessor
+// path (external support_preprocess.py + Plater no-fallthrough hard-stop) is
+// 100% unchanged. UNVALIDATED — must pass belt_gcode_gate.py + HW print.
+// TreeSupport* is intentionally NOT touched.
+// ===========================================================================
+
+// True when belt-floor native clipping is active for this slice:
+//   the slice is a belt slice (shear_factor != 0, set in update_slicing_parameters)
+//   AND the user opted into native clipped support.
+static inline bool belt_floor_native_clipped_active(
+    const SlicingParameters &slicing_params, const PrintConfig &print_config)
+{
+    return std::abs(slicing_params.belt_floor_shear_factor) > EPSILON
+        && print_config.belt_support_mode.value == BeltSupportMode::NativeClipped;
+}
+
+// Belt printer: compute the belt-surface half-plane polygon at a given print_z.
+// This is the region where the belt surface exists (the "phantom top surface").
+// Returns empty if belt floor native clipping is not active.
+static Polygons belt_floor_surface_polygon(
+    const SlicingParameters &slicing_params,
+    const PrintConfig       &print_config,
+    coordf_t                 print_z)
+{
+    if (!belt_floor_native_clipped_active(slicing_params, print_config))
+        return {};
+    BeltFloorContext ctx;
+    if (!ctx.init(slicing_params, print_config))
+        return {};
+    return ctx.surface_polygon(print_z);
+}
+
+// Belt printer: compute the valid-region half-plane polygon at a given print_z.
+// This is the region where support is allowed to exist (above the belt floor).
+static Polygons belt_floor_valid_region_polygon(
+    const SlicingParameters &slicing_params,
+    const PrintConfig       &print_config,
+    coordf_t                 print_z)
+{
+    if (!belt_floor_native_clipped_active(slicing_params, print_config))
+        return {};
+    BeltFloorContext ctx;
+    if (!ctx.init(slicing_params, print_config))
+        return {};
+    return ctx.valid_region_polygon(print_z);
+}
+
+// Belt printer: trim support layer polygons by the belt floor plane.
+// For each support layer, subtract the belt floor half-plane at that layer's
+// print_z from the support polygons. Same diff() pattern as
+// trim_support_layers_by_object() so derived interface layers inherit it.
+static void trim_support_layers_by_belt_floor(
+    const SlicingParameters          &slicing_params,
+    const PrintConfig                &print_config,
+    SupportGeneratorLayersPtr        &support_layers)
+{
+    if (!belt_floor_native_clipped_active(slicing_params, print_config))
+        return;
+    BeltFloorContext ctx;
+    if (!ctx.init(slicing_params, print_config))
+        return;
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, support_layers.size()),
+        [&](const tbb::blocked_range<size_t> &range) {
+            for (size_t i = range.begin(); i < range.end(); ++i)
+                if (support_layers[i])
+                    support_layers[i]->polygons = diff(support_layers[i]->polygons,
+                                                       ctx.surface_polygon(support_layers[i]->print_z));
+        });
+}
 
 void PrintObjectSupportMaterial::generate(PrintObject &object)
 {
@@ -443,11 +517,13 @@ void PrintObjectSupportMaterial::generate(PrintObject &object)
         object, bottom_contacts, top_contacts, layer_storage);
 
     this->trim_support_layers_by_object(object, top_contacts, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
+    // ORCA_BELT: clip top contacts against the 45° belt floor (no-op unless NativeClipped).
+    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, top_contacts);
 
 #ifdef SLIC3R_DEBUG
     for (const SupportGeneratorLayer *layer : top_contacts)
         Slic3r::SVG::export_expolygons(
-            debug_out_path("support-top-contacts-trimmed-by-object-%d-%lf.svg", iRun, layer->print_z), 
+            debug_out_path("support-top-contacts-trimmed-by-object-%d-%lf.svg", iRun, layer->print_z),
             union_ex(layer->polygons));
 #endif
 
@@ -2504,6 +2580,85 @@ static inline SupportGeneratorLayer* detect_bottom_contacts(
     return &layer_new;
 }
 
+// ORCA_BELT: detect bottom contacts where support meets the 45° belt floor plane.
+// Modeled on detect_bottom_contacts() but uses the belt-floor half-plane polygon
+// instead of stTop object surfaces. Only meaningful when NativeClipped is active
+// (caller gates on has_belt_floor). NOTE: our SlicingParameters uses
+// `soluble_interface` where upstream PR uses `zero_gap_interface_bottom` — same
+// "is there a gap below the bottom contact" semantics (soluble => zero gap).
+static inline SupportGeneratorLayer* detect_belt_floor_bottom_contacts(
+    const SlicingParameters                          &slicing_params,
+    const SupportParameters                          &support_params,
+    const PrintConfig                                &print_config,
+    const PrintObject                                &object,
+    const Layer                                      &layer,
+    const SupportGeneratorLayersPtr                  &top_contacts,
+    size_t                                            contact_idx,
+    SupportGeneratorLayerStorage                     &layer_storage,
+    std::vector<Polygons>                            &layer_support_areas,
+    const Polygons                                   &supports_projected)
+{
+    // Compute the belt surface polygon at this layer's Z.
+    Polygons belt_surface = belt_floor_surface_polygon(slicing_params, print_config, layer.print_z);
+    if (belt_surface.empty())
+        return nullptr;
+
+    // Find where projected support overlaps the belt surface.
+    Polygons touching = intersection(belt_surface, supports_projected);
+    if (touching.empty())
+        return nullptr;
+
+    assert(layer.id() >= slicing_params.raft_layers());
+    size_t layer_id = layer.id() - slicing_params.raft_layers();
+
+    // Allocate a new bottom contact layer resting on the belt plane.
+    SupportGeneratorLayer &layer_new = layer_storage.allocate_unguarded(SupporLayerType::BottomContact);
+
+    // No object layer to sync with -- compute heights directly from flow parameters.
+    layer_new.height  = support_params.support_material_bottom_interface_flow.height();
+    layer_new.print_z = layer.print_z + layer_new.height + slicing_params.gap_object_support;
+    layer_new.bottom_z = layer.print_z;
+    layer_new.idx_object_layer_below = layer_id;
+    layer_new.bridging = ! slicing_params.soluble_interface && object.config().thick_bridges;
+    layer_new.polygons = expand(touching, float(support_params.support_material_flow.scaled_width()), SUPPORT_SURFACES_OFFSET_PARAMETERS);
+
+    if (! slicing_params.soluble_interface) {
+        // Snap to nearby top contact layers to avoid very thin support layers.
+        for (size_t top_idx = size_t(std::max<int>(0, int(contact_idx)));
+            top_idx < top_contacts.size() && top_contacts[top_idx]->print_z < layer_new.print_z + support_params.support_layer_height_min + EPSILON;
+            ++ top_idx) {
+            if (top_contacts[top_idx]->print_z > layer_new.print_z - support_params.support_layer_height_min - EPSILON) {
+                coordf_t diff = layer_new.print_z - top_contacts[top_idx]->print_z;
+                assert(std::abs(diff) <= support_params.support_layer_height_min + EPSILON);
+                if (diff > 0.F) {
+                    if (layer_new.height - diff > support_params.support_layer_height_min) {
+                        layer_new.print_z = top_contacts[top_idx]->print_z;
+                        layer_new.height -= diff;
+                    } else {
+                        continue;
+                    }
+                } else {
+                    layer_new.print_z = top_contacts[top_idx]->print_z;
+                    layer_new.height -= diff;
+                }
+                break;
+            }
+        }
+    }
+
+    // Trim the already created base layers above this belt contact.
+    touching = expand(touching, float(SCALED_EPSILON));
+    for (int layer_id_above = int(layer_id) + 1; layer_id_above < int(object.total_layer_count()); ++ layer_id_above) {
+        const Layer &layer_above = *object.layers()[layer_id_above];
+        if (layer_above.print_z > layer_new.print_z - EPSILON)
+            break;
+        if (Polygons &above = layer_support_areas[layer_id_above]; ! above.empty())
+            above = diff(above, touching);
+    }
+
+    return &layer_new;
+}
+
 // Returns polygons to print + polygons to propagate downwards.
 // Called twice: First for normal supports, possibly trimmed by "on build plate only", second for support enforcers not trimmed by "on build plate only".
 static inline std::pair<Polygons, Polygons> project_support_to_grid(const Layer &layer, const SupportGridParams &grid_params, const Polygons &overhangs, Polygons *layer_buildplate_covered
@@ -2603,6 +2758,8 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
     //const auto   expansion_to_slice = m_support_material_flow.scaled_spacing() / 2 + 25;
     const SupportGridParams grid_params(*m_object_config, m_support_params.support_material_flow);
     const bool buildplate_only = ! buildplate_covered.empty();
+    // ORCA_BELT: only active for belt + NativeClipped opt-in.
+    const bool has_belt_floor  = belt_floor_native_clipped_active(m_slicing_params, *m_print_config);
 
     // Allocate empty surface areas, one per object layer.
     layer_support_areas.assign(object.total_layer_count(), Polygons());
@@ -2664,7 +2821,7 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
         const Polygons &overhangs_for_bottom_contacts = buildplate_only ? enforcers_projection_raw : overhangs_projection_raw;
         if (! overhangs_for_bottom_contacts.empty())
             // Find the bottom contact layers above the top surfaces of this layer.
-            task_group.run([this, &object, &layer, &top_contacts, contact_idx, &layer_storage, &layer_support_areas, &bottom_contacts, &overhangs_for_bottom_contacts
+            task_group.run([this, &object, &layer, &top_contacts, contact_idx, &layer_storage, &layer_support_areas, &bottom_contacts, &overhangs_for_bottom_contacts, has_belt_floor
     #ifdef SLIC3R_DEBUG
                 , iRun, &polygons_new
     #endif // SLIC3R_DEBUG
@@ -2678,6 +2835,15 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
                     );
                     if (layer_new)
                         bottom_contacts.push_back(layer_new);
+                    // ORCA_BELT: phantom belt-floor bottom contacts where support meets the belt plane.
+                    if (has_belt_floor) {
+                        SupportGeneratorLayer *belt_layer = detect_belt_floor_bottom_contacts(
+                            m_slicing_params, m_support_params, *m_print_config, object,
+                            layer, top_contacts, contact_idx, layer_storage,
+                            layer_support_areas, overhangs_for_bottom_contacts);
+                        if (belt_layer)
+                            bottom_contacts.push_back(belt_layer);
+                    }
                 });
 
         Polygons &layer_support_area = layer_support_areas[layer_id];
@@ -2716,6 +2882,23 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
 
         task_group.wait();
 
+        // ORCA_BELT: clip projections and support areas so support doesn't
+        // propagate below the belt plane (no-op unless NativeClipped active).
+        if (has_belt_floor) {
+            Polygons valid_region = belt_floor_valid_region_polygon(
+                m_slicing_params, *m_print_config, layer.print_z);
+            if (! valid_region.empty()) {
+                if (! overhangs_projection.empty())
+                    overhangs_projection = intersection(overhangs_projection, valid_region);
+                if (! enforcers_projection.empty())
+                    enforcers_projection = intersection(enforcers_projection, valid_region);
+                if (! layer_support_area.empty())
+                    layer_support_area = intersection(layer_support_area, valid_region);
+                if (! layer_support_area_enforcers.empty())
+                    layer_support_area_enforcers = intersection(layer_support_area_enforcers, valid_region);
+            }
+        }
+
         if (! layer_support_area_enforcers.empty()) {
             if (layer_support_area.empty())
                 layer_support_area = std::move(layer_support_area_enforcers);
@@ -2726,6 +2909,8 @@ SupportGeneratorLayersPtr PrintObjectSupportMaterial::bottom_contact_layers_and_
 
     std::reverse(bottom_contacts.begin(), bottom_contacts.end());
     trim_support_layers_by_object(object, bottom_contacts, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
+    // ORCA_BELT: trim belt-floor bottom contacts by the belt plane too.
+    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, bottom_contacts);
     return bottom_contacts;
 }
 
@@ -3096,6 +3281,9 @@ void PrintObjectSupportMaterial::generate_base_layers(
 #endif /* SLIC3R_DEBUG */
 
     this->trim_support_layers_by_object(object, intermediate_layers, m_slicing_params.gap_support_object, m_slicing_params.gap_object_support, m_support_params.gap_xy);
+    // ORCA_BELT: clip intermediate/base layers by the belt floor (no-op unless NativeClipped).
+    // Interface layers derived from these intermediates inherit the trim.
+    trim_support_layers_by_belt_floor(m_slicing_params, *m_print_config, intermediate_layers);
 }
 
 void PrintObjectSupportMaterial::trim_support_layers_by_object(

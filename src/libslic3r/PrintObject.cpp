@@ -19,6 +19,7 @@
 #include "Fill/FillAdaptive.hpp"
 #include "Fill/FillLightning.hpp"
 #include "BeltPrinter/MachineProfile.hpp"
+#include "BeltTransform.hpp"
 #include "Format/STL.hpp"
 #include "format.hpp"
 #include "AABBTreeLines.hpp"
@@ -3431,6 +3432,16 @@ void PrintObject::update_slicing_parameters()
             m_slicing_params.gap_support_object        *= scale;
             m_slicing_params.gap_object_support        *= scale;
             m_slicing_params.gap_raft_object           *= scale;
+
+            // ORCA_BELT: belt floor support-clipping params (fixed 45° fork constants).
+            // These are inert unless belt_support_mode == NativeClipped (opt-in native
+            // support). The forward/inclined/inverse transform core is untouched.
+            //   forward F_ZY = tan(45°) = 1  →  shear_factor = 1.0
+            //   shear is from the Y axis      →  from_axis = 1
+            //   belt floor = slicing plane    →  z_shift from BeltTransform accessor.
+            m_slicing_params.belt_floor_shear_factor = 1.0;
+            m_slicing_params.belt_floor_from_axis    = 1;
+            m_slicing_params.belt_floor_z_shift      = BeltTransform::get_trafo_z_shift();
         }
     }
 }

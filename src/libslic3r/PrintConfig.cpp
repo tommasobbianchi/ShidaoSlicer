@@ -472,6 +472,13 @@ static t_config_enum_values s_keys_map_BeltAxis {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltAxis)
 
+// ORCA_BELT: belt support generation mode.
+static t_config_enum_values s_keys_map_BeltSupportMode {
+    {"preprocessor",    int(BeltSupportMode::Preprocessor)},
+    {"native_clipped",  int(BeltSupportMode::NativeClipped)}
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(BeltSupportMode)
+
 static t_config_enum_values s_keys_map_PerimeterGeneratorType{
     { "classic", int(PerimeterGeneratorType::Classic) },
     { "arachne", int(PerimeterGeneratorType::Arachne) }
@@ -5682,6 +5689,39 @@ void PrintConfigDef::init_fff_params()
     def->min = 0;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionInt(10));
+
+    // ORCA_BELT: how belt-printer supports are produced.
+    //   Preprocessor  (default) = external support_preprocess.py (model-space columns + keel wedge).
+    //   NativeClipped (opt-in)  = OrcaSlicer native CLASSIC/grid support, clipped against the 45° belt floor.
+    def = this->add("belt_support_mode", coEnum);
+    def->label = L("Belt support mode");
+    def->category = L("Support");
+    def->tooltip = L("Belt printers only. Preprocessor (default): supports are generated "
+                     "in model space by the external support_preprocess.py script (safe, "
+                     "hardware-validated). Native clipped (experimental): OrcaSlicer's built-in "
+                     "CLASSIC/grid support is generated and clipped against the 45° belt floor "
+                     "plane. UNVALIDATED — verify with belt_gcode_gate.py before printing.");
+    def->enum_keys_map = &ConfigOptionEnum<BeltSupportMode>::get_enum_values();
+    def->enum_values.push_back("preprocessor");
+    def->enum_values.push_back("native_clipped");
+    def->enum_labels.push_back(L("Preprocessor (default)"));
+    def->enum_labels.push_back(L("Native clipped (experimental)"));
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<BeltSupportMode>(BeltSupportMode::Preprocessor));
+
+    // ORCA_BELT: shifts the computed belt floor plane up (+) or down (-) in slicing space.
+    // Only used when belt_support_mode = NativeClipped.
+    def = this->add("belt_support_floor_offset", coFloat);
+    def->label = L("Belt support floor offset");
+    def->category = L("Support");
+    def->tooltip = L("Belt printers only, native clipped mode. Shifts the computed belt floor "
+                     "plane used to clip native support. Positive raises the floor (clips more "
+                     "support away); negative lowers it. 0 = belt floor at the slicing plane.");
+    def->sidetext = L("mm");
+    def->min = -500;
+    def->max = 500;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
 
     def = this->add("support_interface_bottom_layers", coInt);
     def->gui_type = ConfigOptionDef::GUIType::i_enum_open;

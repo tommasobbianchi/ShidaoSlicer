@@ -343,6 +343,14 @@ enum class BeltAxis {
     X, Y, Z
 };
 
+// ORCA_BELT: how belt-printer supports are generated.
+//  Preprocessor   = default; external support_preprocess.py (model-space columns + keel wedge).
+//  NativeClipped  = opt-in; OrcaSlicer native CLASSIC/grid support, clipped against the 45° belt floor.
+enum class BeltSupportMode {
+    Preprocessor,
+    NativeClipped
+};
+
 // BBS
 enum ZHopType {
     zhtAuto = 0,
@@ -514,6 +522,7 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(AuthorizationType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(WipeTowerWallType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(PerimeterGeneratorType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltAxis)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(BeltSupportMode)
 
 #undef CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS
 
@@ -1449,6 +1458,9 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionEnum<BeltAxis>,     belt_axis))
     ((ConfigOptionBool,               belt_wall_enabled))
     ((ConfigOptionBool,               belt_inclined_gcode))
+    // ORCA_BELT: native belt-floor support clipping (opt-in; default = external preprocessor).
+    ((ConfigOptionEnum<BeltSupportMode>, belt_support_mode))
+    ((ConfigOptionFloat,                 belt_support_floor_offset))
 
     //BBS
     ((ConfigOptionFloat,              initial_layer_infill_speed))

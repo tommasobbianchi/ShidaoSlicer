@@ -15405,6 +15405,24 @@ static int belt_supports_preprocess_mode(Plater& plater)
         return 0;
     }
 
+    // ORCA_BELT: opt-in native belt-floor support clipping. When the user selects
+    // belt_support_mode = NativeClipped, SKIP the external Python preprocessor
+    // entirely and let OrcaSlicer's native CLASSIC/grid support run — it gets
+    // clipped against the 45° belt floor in SupportMaterial.cpp. We must NOT touch
+    // enable_support here (the user's toggle drives native support), and we must
+    // NOT engage the preprocessor-required hard-stop below. The default
+    // (Preprocessor) path is 100% unchanged.
+    {
+        const auto& print_cfg_mode = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        if (auto* mode_opt = print_cfg_mode.option<ConfigOptionEnum<BeltSupportMode>>("belt_support_mode")) {
+            if (mode_opt->value == BeltSupportMode::NativeClipped) {
+                BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip preprocessor: belt_support_mode=native_clipped "
+                                              "(native support runs, floor-clipped; UNVALIDATED)";
+                return 0;
+            }
+        }
+    }
+
     const auto& objs = plater.model().objects;
     if (objs.empty()) {
         BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip: no objects";

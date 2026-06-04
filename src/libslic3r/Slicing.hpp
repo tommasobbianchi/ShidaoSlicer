@@ -110,6 +110,13 @@ struct SlicingParameters
      coordf_t     object_print_z_uncompensated_max { 0 };
      // Scaling factor for compensating shrinkage in Z-axis.
      coordf_t    object_shrinkage_compensation_z { 0 };
+
+    // ORCA_BELT: belt floor support-clipping parameters (POD, fixed 45° fork).
+    // cutoff = (print_z - belt_floor_z_shift - floor_offset) / belt_floor_shear_factor
+    // belt_floor_shear_factor == 0 means "not a belt object" → BeltFloorContext inactive.
+    double      belt_floor_shear_factor { 0.0 };  // forward shear (tan(angle); 1.0 for 45°)
+    int         belt_floor_from_axis    { 1 };    // axis the shear is from (0=X, 1=Y)
+    double      belt_floor_z_shift      { 0.0 };  // belt floor Z offset in slicing space
 };
 static_assert(IsTriviallyCopyable<SlicingParameters>::value, "SlicingParameters class is not POD (and it should be - see constructor).");
 
