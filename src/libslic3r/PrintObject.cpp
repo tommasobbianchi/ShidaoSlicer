@@ -3436,12 +3436,25 @@ void PrintObject::update_slicing_parameters()
             // ORCA_BELT: belt floor support-clipping params (fixed 45° fork constants).
             // These are inert unless belt_support_mode == NativeClipped (opt-in native
             // support). The forward/inclined/inverse transform core is untouched.
-            //   forward F_ZY = tan(45°) = 1  →  shear_factor = 1.0
-            //   shear is from the Y axis      →  from_axis = 1
-            //   belt floor = slicing plane    →  z_shift from BeltTransform accessor.
+            //
+            // Derivation (see _generate_support_material for the z_shift fill-in):
+            //   A support polygon point at slicing coords (x_virt, y_virt) on layer
+            //   print_z is emitted via the inverse transform as Y_gcode = √2·y_virt,
+            //   while the layer's Z literal is Z_gcode = print_z - belt_z_base.
+            //   The gate's belt-clearance is z_mach = Z_gcode - Y_gcode/√2
+            //                                       = (print_z - belt_z_base) - y_virt.
+            //   The belt interior (support-forbidden) is z_mach < 0, i.e.
+            //     y_virt > print_z - belt_z_base.
+            //   BeltFloorContext forbids (shear>0, from_axis=1) y_virt >= cutoff with
+            //     cutoff = (print_z - z_shift - floor_offset)/shear_factor.
+            //   Matching: shear_factor = 1, from_axis = 1 (Y), z_shift = belt_z_base.
+            //   The √2 of the inverse Y-scale cancels the gate's /√2, so the floor is
+            //   a unit-slope line in slicing Y — shear_factor stays 1.0, NOT √2.
+            // z_shift is set per-object in _generate_support_material() once layers
+            // exist (belt_z_base = first non-empty layer print_z). Default to 0 here.
             m_slicing_params.belt_floor_shear_factor = 1.0;
             m_slicing_params.belt_floor_from_axis    = 1;
-            m_slicing_params.belt_floor_z_shift      = BeltTransform::get_trafo_z_shift();
+            m_slicing_params.belt_floor_z_shift      = 0.0;
         }
     }
 }
@@ -3993,6 +4006,25 @@ void PrintObject::combine_infill()
 
 void PrintObject::_generate_support_material()
 {
+    // ORCA_BELT: Fill in belt_floor_z_shift for native-clipped support now that
+    // layers exist. The belt floor (z_mach = 0 locus) in slicing space is
+    //   y_virt = print_z - belt_z_base,
+    // where belt_z_base is the print_z of the first non-empty layer (same value
+    // GCode.cpp subtracts before emitting the layer Z literal). Setting
+    // belt_floor_z_shift = belt_z_base makes BeltFloorContext's cut line coincide
+    // exactly with z_mach = 0, so the forbidden (clipped) half-plane is precisely
+    // the belt interior. shear_factor/from_axis were set in update_slicing_parameters.
+    if (std::abs(m_slicing_params.belt_floor_shear_factor) > EPSILON) {
+        double belt_z_base = 0.0;
+        for (const Layer *layer : this->layers()) {
+            if (!layer->empty()) {
+                belt_z_base = layer->print_z;
+                break;
+            }
+        }
+        m_slicing_params.belt_floor_z_shift = belt_z_base;
+    }
+
     if (is_tree(m_config.support_type.value)) {
         TreeSupport tree_support(*this, m_slicing_params);
         tree_support.throw_on_cancel = [this]() { this->throw_if_canceled(); };
