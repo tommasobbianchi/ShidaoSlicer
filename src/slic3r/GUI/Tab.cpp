@@ -2537,14 +2537,6 @@ void TabPrint::build()
         optgroup->append_single_option_line("support_on_build_plate_only", "support_settings_support#on-build-plate-only");
         optgroup->append_single_option_line("support_critical_regions_only", "support_settings_support#support-critical-regions-only");
         optgroup->append_single_option_line("support_remove_small_overhang", "support_settings_support#ignore-small-overhangs");
-        // ORCA_BELT: belt-printer support strategy selector + floor diagnostic offset.
-        // belt_support_mode = preprocessor (default, external support_preprocess.py)
-        // or native_clipped (BeltFloorContext clips native support to the 45° belt
-        // floor). Inert for non-belt printers (belt_support_mode is read only on the
-        // belt support path). EXPERIMENTAL: native_clipped is gate-validated headless,
-        // pending HW print.
-        optgroup->append_single_option_line("belt_support_mode");
-        optgroup->append_single_option_line("belt_support_floor_offset");
         //optgroup->append_single_option_line("enforce_support_layers", "support_settings_support");
 
         optgroup = page->new_optgroup(L("Raft"), L"param_raft");

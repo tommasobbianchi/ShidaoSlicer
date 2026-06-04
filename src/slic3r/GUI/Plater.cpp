@@ -15413,13 +15413,22 @@ static int belt_supports_preprocess_mode(Plater& plater)
     // NOT engage the preprocessor-required hard-stop below. The default
     // (Preprocessor) path is 100% unchanged.
     {
+        bool native_clipped = false;
+        // Env override (validation/debug lever, no GUI dependency): same pattern as
+        // ORCABELT_DISABLE_WEBVIEW. Lets the native-clipped path be exercised without
+        // a GUI toggle (the Support-page option is not exposed — it recursed in
+        // TabCtrl::SelectItem). Launch: ORCABELT_SUPPORT_MODE=native_clipped orca-belt ...
+        if (const char* env = ::getenv("ORCABELT_SUPPORT_MODE"))
+            native_clipped = (std::string(env) == "native_clipped");
         const auto& print_cfg_mode = wxGetApp().preset_bundle->prints.get_edited_preset().config;
         if (auto* mode_opt = print_cfg_mode.option<ConfigOptionEnum<BeltSupportMode>>("belt_support_mode")) {
-            if (mode_opt->value == BeltSupportMode::NativeClipped) {
-                BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip preprocessor: belt_support_mode=native_clipped "
-                                              "(native support runs, floor-clipped; UNVALIDATED)";
-                return 0;
-            }
+            if (mode_opt->value == BeltSupportMode::NativeClipped)
+                native_clipped = true;
+        }
+        if (native_clipped) {
+            BOOST_LOG_TRIVIAL(warning) << "[BELT_SUPPORTS_GATE] skip preprocessor: native_clipped "
+                                          "(native support runs, floor-clipped; UNVALIDATED)";
+            return 0;
         }
     }
 
