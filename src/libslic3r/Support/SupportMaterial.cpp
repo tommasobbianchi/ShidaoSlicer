@@ -11,6 +11,8 @@
 #include "MutablePolygon.hpp"
 
 #include <cmath>
+#include <cstdlib>
+#include <string>
 #include <memory>
 #include <boost/log/trivial.hpp>
 #include <boost/container/static_vector.hpp>
@@ -383,12 +385,22 @@ static constexpr const std::initializer_list<SupporLayerType> support_types_inte
 
 // True when belt-floor native clipping is active for this slice:
 //   the slice is a belt slice (shear_factor != 0, set in update_slicing_parameters)
-//   AND the user opted into native clipped support.
+//   AND native clipped support was requested (config OR the env override).
 static inline bool belt_floor_native_clipped_active(
     const SlicingParameters &slicing_params, const PrintConfig &print_config)
 {
-    return std::abs(slicing_params.belt_floor_shear_factor) > EPSILON
-        && print_config.belt_support_mode.value == BeltSupportMode::NativeClipped;
+    if (std::abs(slicing_params.belt_floor_shear_factor) <= EPSILON)
+        return false;
+    if (print_config.belt_support_mode.value == BeltSupportMode::NativeClipped)
+        return true;
+    // Env override (validation/debug lever). MUST stay consistent with the GUI
+    // Plater belt_supports_preprocess_mode() env check: whenever the env makes the
+    // GUI SKIP the preprocessor, the clip MUST also engage here — otherwise native
+    // support runs UN-clipped (driver-killing R7/R11). Incident 2026-06-05: the env
+    // hit only the Plater side -> split state -> unsafe G-code (gate BLOCKED it).
+    if (const char *env = std::getenv("ORCABELT_SUPPORT_MODE"))
+        return std::string(env) == "native_clipped";
+    return false;
 }
 
 // Belt printer: compute the belt-surface half-plane polygon at a given print_z.
