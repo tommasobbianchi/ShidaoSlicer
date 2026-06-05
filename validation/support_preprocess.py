@@ -123,6 +123,18 @@ def read_3mf_support_settings(path_3mf):
         elif s in ("0", "false", "no", "off"):
             found["belt_directional"] = False
 
+    # Belt-aware overhangs: custom project key, bool. Detect overhangs against
+    # the 45° belt-normal build direction instead of model-vertical (belt-gl3).
+    raw = proj.get("belt_aware_supports")
+    if isinstance(raw, list) and raw:
+        raw = raw[0]
+    if raw is not None:
+        s = str(raw).strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            found["belt_aware_overhangs"] = True
+        elif s in ("0", "false", "no", "off"):
+            found["belt_aware_overhangs"] = False
+
     # Custom: belt_support_wedge_layers — overrides --wedge-layers CLI default.
     # When set in 3MF project settings, the preprocessor uses this instead of
     # args.wedge_layers (CLI). Lets the GUI sidebar tune solid base height.
@@ -338,25 +350,54 @@ def _load_mesh_from_3mf_local(path_3mf):
 
 # ── Overhang Detection ────────────────────────────────────────────────────────
 
-def detect_overhangs(mesh, threshold_angle=50.0, floor_z=0.1, min_area=1.0):
+def belt_build_down(belt_angle_deg=45.0):
     """
-    Standard Cartesian overhang detection.
+    Unit "downward" (unsupported) direction for belt overhang detection, in
+    model_local coordinates.
+
+    On a belt at angle α from horizontal, the slicer builds up perpendicular to
+    the belt surface, NOT along model-vertical. In this fork's 45° pipeline the
+    forward transform is Z_virt = Y_model + Z_model, so the slicing planes are
+    Y_model + Z_model = const and the belt build-UP direction in model space is
+    the plane normal (0, sin α, cos α) (α = 45° → (0, 1, 1)/√2). The relevant
+    "down" for overhang detection is its negation.
+
+    Degrades gracefully: α = 0 → (0, 0, -1), i.e. identical to Cartesian
+    detection on a flat bed.
+    """
+    a = np.radians(belt_angle_deg)
+    return np.array([0.0, -np.sin(a), -np.cos(a)])
+
+
+def detect_overhangs(mesh, threshold_angle=50.0, floor_z=0.1, min_area=1.0,
+                     gravity=None):
+    """
+    Overhang detection.
 
     A face needs support if:
-      1. Normal points downward: normal · [0,0,-1] >= cos(90 - threshold)
+      1. Normal points "downward": normal · gravity >= cos(90 - threshold)
       2. Lowest vertex is above floor_z (face is not resting on the build plate)
       3. Its connected overhang region has total area >= min_area
+
+    `gravity` is the unit unsupported direction. Default None → Cartesian
+    [0,0,-1] (legacy / non-belt behaviour, unchanged). For belt printers pass
+    belt_build_down(belt_angle) so overhangs are measured against the 45°
+    belt-normal build direction instead of model-vertical — otherwise a model
+    with overhangs on all sides (e.g. a cottage with eaves) gets a full ring of
+    support that extends past its silhouette (belt-gl3).
 
     Connected-component area filter handles tessellated curved surfaces where
     individual faces are small but the region as a whole needs support.
 
     Returns boolean mask over mesh.faces.
     """
-    gravity = np.array([0.0, 0.0, -1.0])
+    if gravity is None:
+        gravity = np.array([0.0, 0.0, -1.0])
+    gravity = np.asarray(gravity, dtype=float)
     cos_thresh = np.cos(np.radians(90.0 - threshold_angle))
 
     normals = mesh.face_normals
-    dots = normals @ gravity  # positive = face points downward
+    dots = normals @ gravity  # positive = face points "down" along gravity
 
     face_verts = mesh.vertices[mesh.faces]  # (N, 3, 3)
     min_zs = face_verts[:, :, 2].min(axis=1)
@@ -370,6 +411,8 @@ def detect_overhangs(mesh, threshold_angle=50.0, floor_z=0.1, min_area=1.0):
 
     print(f"\nOverhang detection:")
     print(f"  Total faces: {len(mesh.faces)}")
+    print(f"  Gravity (unsupported dir): [{gravity[0]:.3f},{gravity[1]:.3f},{gravity[2]:.3f}]"
+          f"{'  (belt-aware)' if abs(gravity[1]) > 1e-6 else '  (Cartesian)'}")
     print(f"  Candidate faces (angle+height): {candidate.sum()}")
     print(f"  After region area filter (>= {min_area} mm²): {mask.sum()}")
     print(f"  Threshold: {threshold_angle}°, floor_z: {floor_z} mm")
@@ -1676,11 +1719,16 @@ def make_compound_stl(model_path, config):
     print(f"  Vertices: {len(model.vertices)}, Faces: {len(model.faces)}, "
           f"Volume: {model.volume:.2f} mm³")
 
+    overhang_gravity = (
+        belt_build_down(float(config.get("belt_angle", 45.0)))
+        if config.get("belt_aware_overhangs") else None
+    )
     overhang_mask = detect_overhangs(
         model,
         threshold_angle=config["threshold_angle"],
         floor_z=config["floor_z"],
         min_area=config["min_area"],
+        gravity=overhang_gravity,
     )
 
     # ORCA_BELT: apply belt-directional filter if the config says so. The
@@ -1759,6 +1807,17 @@ def main():
     parser.add_argument("--belt-directional-ztol", type=float, default=0.8,
                         help="Z reach tolerance (mm) for belt-directional filter (default 0.8, "
                              "≈2× layer height)")
+    parser.add_argument("--belt-aware-overhangs", action="store_true",
+                        help="Belt printers only: detect overhangs against the 45° "
+                             "belt-normal build direction (0,-1,-1)/√2 instead of "
+                             "model-vertical (0,0,-1). Without this, a model with "
+                             "overhangs on all sides (e.g. a cottage with eaves) gets a "
+                             "ring of support that surrounds the part (belt-gl3). "
+                             "Default OFF (opt-in, needs HW validation). Can also be "
+                             "enabled via 3MF project setting belt_aware_supports.")
+    parser.add_argument("--belt-angle", type=float, default=45.0,
+                        help="Belt incline angle in degrees for belt-aware overhang "
+                             "detection (default 45.0; this fork's pipeline is 45°-only).")
     parser.add_argument("--no-supports", action="store_true",
                         help="Skip overhang-support generation (only emit keel "
                              "wedge if keel gap is detected). Used by the GUI "
@@ -1814,6 +1873,9 @@ def main():
         config["belt_directional"] = True
     config["belt_directional_radius"] = args.belt_directional_radius
     config["belt_directional_ztol"] = args.belt_directional_ztol
+    if args.belt_aware_overhangs:
+        config["belt_aware_overhangs"] = True
+    config["belt_angle"] = args.belt_angle
 
     # ── Legacy STL compound mode ───────────────────────────────────────────
     if args.compound:
@@ -1925,11 +1987,23 @@ def main():
               "(keel wedge will still be emitted if keel gap was detected).")
         overhang_mask = np.zeros(len(model_local.faces), dtype=bool)
     else:
+        # ORCA_BELT: belt-aware overhang direction. CLI flag takes precedence;
+        # 3MF project setting (belt_aware_supports) is the re-slice-safe fallback.
+        # Default OFF → legacy Cartesian detection (validated models unchanged).
+        belt_aware_on = (
+            args.belt_aware_overhangs
+            or bool(config.get("belt_aware_overhangs", False))
+        )
+        overhang_gravity = (
+            belt_build_down(float(config.get("belt_angle", 45.0)))
+            if belt_aware_on else None
+        )
         overhang_mask = detect_overhangs(
             model_local,
             threshold_angle=config["threshold_angle"],
             floor_z=config["floor_z"],
             min_area=config["min_area"],
+            gravity=overhang_gravity,
         )
 
     # ORCA_BELT: optional belt-directional filter. CLI flag takes precedence;
