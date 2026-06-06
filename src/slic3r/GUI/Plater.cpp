@@ -12635,7 +12635,69 @@ void Plater::calib_temp(const Calib_Params& params) {
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
     if (params.mode != CalibMode::Calib_Temp_Tower)
         return;
-    
+
+    // ORCA_BELT: belt printers build along the conveyor, not vertically — a tall
+    // tower cannot be sliced. Lay a horizontal bar with one constant-temperature
+    // ZONE per 5 C step, preceded by a 45 deg keel wedge for adhesion, with the
+    // temperature embossed on each zone. The temperature is changed in discrete
+    // steps via custom per-layer G-code (M104) injected at each zone's Z_gcode
+    // boundary, so it lines up with the embossed number. Temps come from the
+    // dialog's per-filament range (params.start..end, 5 C step). We deliberately
+    // do NOT set calib params here — that would run the per-layer interpolation
+    // (interpolate_value_across_layers) and override these discrete M104 events.
+    {
+        auto belt_printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        if (belt_printer_config->has("printer_is_belt") && belt_printer_config->opt_bool("printer_is_belt")) {
+            // Shared geometry contract with the offline asset generator
+            // (resources/calib/temperature_tower/gen_belt_temp_tower.py).
+            constexpr double WEDGE_ZG  = 12.0;  // keel wedge length in Z_gcode (mm) = gen WEDGE_LEN
+            constexpr double ZONE_ZG   = 30.0;  // per-temperature zone length (mm) = gen ZONE_LEN
+            constexpr int    TEMP_STEP = 5;     // matches Temp_Calibration_Dlg
+
+            const int t_start = (int) lround(params.start);
+            const int t_end   = (int) lround(params.end);
+            std::vector<int> temps;
+            const int tstep = (t_start >= t_end) ? -TEMP_STEP : TEMP_STEP;
+            for (int t = t_start; (tstep < 0) ? (t >= t_end) : (t <= t_end); t += tstep)
+                temps.push_back(t);
+            if (temps.empty()) temps.push_back(t_start);
+
+            const std::string calib_dir = Slic3r::resources_dir() + "/calib/temperature_tower/";
+            std::string asset = calib_dir + "belt_temp_tower_" + std::to_string(t_start) + "_" + std::to_string(t_end) + ".stl";
+            if (!boost::filesystem::exists(asset)) {
+                BOOST_LOG_TRIVIAL(warning) << "[belt_temp] no embossed bar for " << t_start << "->" << t_end
+                                           << ", falling back to 230_190 (embossed numbers will not match)";
+                asset = calib_dir + "belt_temp_tower_230_190.stl";
+            }
+            add_model(false, asset);
+
+            auto belt_filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+            belt_filament_config->set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, temps.front()));
+            belt_filament_config->set_key_value("nozzle_temperature", new ConfigOptionInts(1, temps.front()));
+            model().objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+            model().objects[0]->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+            model().objects[0]->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+            belt_printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
+
+            const int plate_idx = get_partplate_list().get_curr_plate_index();
+            model().curr_plate_index = plate_idx;
+            CustomGCode::Info &cg_info = model().plates_custom_gcodes[plate_idx];
+            cg_info.mode = CustomGCode::Mode::SingleExtruder;
+            cg_info.gcodes.clear();
+            for (size_t i = 1; i < temps.size(); ++i) {
+                const double zg = WEDGE_ZG + double(i) * ZONE_ZG;
+                cg_info.gcodes.push_back(CustomGCode::Item{
+                    zg, CustomGCode::Custom, 1, "",
+                    "M104 S" + std::to_string(temps[i]) + " ; belt temp zone " + std::to_string(temps[i]) });
+            }
+
+            changed_objects({ 0 });
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
+            return;
+        }
+    }
+
     add_model(false, Slic3r::resources_dir() + "/calib/temperature_tower/temperature_tower.stl");
     auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
     auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
