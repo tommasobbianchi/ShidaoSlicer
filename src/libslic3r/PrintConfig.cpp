@@ -5003,6 +5003,16 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionEnum<SeamPosition>(spAligned));
 
+    def = this->add("seam_belt_honor_painting", coBool);
+    def->label = L("Honor painted seams on belt");
+    def->category = L("Quality");
+    def->tooltip = L("Belt printers normally force the seam of every perimeter to the belt-entry (minimum-Y) edge, "
+                     "which ignores the seam painter and the Seam position setting. Enable this to make belt prints "
+                     "honor painted seam enforcers/blockers and the Seam position setting instead. Has no effect on "
+                     "non-belt printers.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("staggered_inner_seams", coBool);
     def->label = L("Staggered inner seams");
     def->tooltip = L("This option causes the inner seams to be shifted backwards based on their depth, forming a zigzag pattern.");

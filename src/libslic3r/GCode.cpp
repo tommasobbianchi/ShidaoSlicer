@@ -5531,7 +5531,7 @@ std::string GCode::extrude_loop(ExtrusionLoop loop, std::string description, dou
     // or, if `start_point` is specified, start the loop at point closest to it
     Point last_pos = start_point ? *start_point : this->last_pos();
     float seam_overhang = std::numeric_limits<float>::lowest();
-    if (m_belt_inclined_gcode && !m_config.spiral_mode) {
+    if (m_belt_inclined_gcode && !m_config.spiral_mode && !m_config.seam_belt_honor_painting) {
         // Belt printer: start loops at minimum Y (= minimum Z_mach / belt position)
         // This ensures the belt starts at the front and advances forward
         Polygon poly = loop.polygon();
